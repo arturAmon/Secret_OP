@@ -1,0 +1,12 @@
+# Secrets: never commit a Riot API key
+api.key
+*.key
+.env
+
+# Build output
+bin/
+obj/
+dist/
+TestResults/
+*.user
+.vs/

@@ -1,0 +1,290 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using LeagueOverlay.Core.Analysis;
+using LeagueOverlay.Core.Data;
+using LeagueOverlay.Core.Live;
+
+namespace LeagueOverlay.Core.Builds;
+
+/// <summary>One player's build from one ranked game: finished items in the order they were bought, plus their boots.</summary>
+public sealed record BuildRecord(
+    [property: JsonPropertyName("c")] int Champion,
+    [property: JsonPropertyName("p")] string Position,
+    [property: JsonPropertyName("w")] bool Win,
+    [property: JsonPropertyName("i")] int[] Items,
+    [property: JsonPropertyName("b")] int Boots);
+
+/// <summary>Turns a match-v5 match + timeline into builds.</summary>
+public static class MatchParser
+{
+    public const int RankedSoloQueue = 420;
+    /// <summary>Shorter games are remakes or early surrenders whose builds aren't finished enough to learn from.</summary>
+    public const int MinGameSeconds = 15 * 60;
+
+    /// <summary>The game's patch ("16.23"), or null if the game isn't a finished ranked solo game.</summary>
+    public static string? UsablePatch(JsonElement match)
+    {
+        var info = match.GetProperty("info");
+        if (info.GetProperty("queueId").GetInt32() != RankedSoloQueue) return null;
+        if (info.GetProperty("gameDuration").GetInt64() < MinGameSeconds) return null;
+        return StaticData.PatchOf(info.GetProperty("gameVersion").GetString() ?? "");
+    }
+
+    public static List<BuildRecord> Parse(JsonElement match, JsonElement timeline, ItemCatalog items)
+    {
+        // Purchase order from the timeline, with undos taken back out.
+        var bought = new Dictionary<int, List<int>>();
+        foreach (var frame in timeline.GetProperty("info").GetProperty("frames").EnumerateArray())
+        foreach (var e in frame.GetProperty("events").EnumerateArray())
+        {
+            string? type = e.GetProperty("type").GetString();
+            if (type is not ("ITEM_PURCHASED" or "ITEM_UNDO")) continue;
+            int pid = e.TryGetProperty("participantId", out var p) ? p.GetInt32() : 0;
+            if (pid is < 1 or > 10) continue;
+            var list = bought.TryGetValue(pid, out var l) ? l : bought[pid] = new List<int>();
+            if (type == "ITEM_PURCHASED") list.Add(e.GetProperty("itemId").GetInt32());
+            else if (e.TryGetProperty("beforeId", out var before) && list.LastIndexOf(before.GetInt32()) is >= 0 and var idx) list.RemoveAt(idx);
+        }
+
+        var result = new List<BuildRecord>();
+        foreach (var participant in match.GetProperty("info").GetProperty("participants").EnumerateArray())
+        {
+            int pid = participant.GetProperty("participantId").GetInt32();
+            var purchases = bought.GetValueOrDefault(pid) ?? [];
+            var core = new List<int>();
+            int boots = 0;
+            foreach (int id in purchases)
+            {
+                if (TierTwoBoots(id, items) is { } b) { if (boots == 0) boots = b; continue; }
+                if (items.Get(id) is { IsCompleted: true, IsBoots: false, IsConsumableOrTrinket: false } && !core.Contains(id)) core.Add(id);
+            }
+            if (boots == 0 && participant.TryGetProperty("roleBoundItem", out var rb) && TierTwoBoots(rb.GetInt32(), items) is { } roleBoots)
+                boots = roleBoots; // bot lane: boots live in the role quest slot
+
+            result.Add(new BuildRecord(
+                participant.GetProperty("championId").GetInt32(),
+                participant.TryGetProperty("teamPosition", out var pos) ? pos.GetString() ?? "" : "",
+                participant.GetProperty("win").GetBoolean(),
+                core.ToArray(),
+                boots));
+        }
+        return result;
+    }
+
+    /// <summary>The tier-2 boots an item is or came from (tier-3 boots count as the tier-2 pair they upgrade), else null.</summary>
+    public static int? TierTwoBoots(int id, ItemCatalog items)
+    {
+        if (!items.IsUpgradedBoots(new PlayerItem { ItemID = id })) return null;
+        var info = items.Get(id);
+        while (info is { Depth: > 2, From.Count: > 0 } && items.Get(info.From[0]) is { } parent) info = parent;
+        return info?.Id ?? id;
+    }
+}
+
+/// <summary>Builds collected for one region and patch, saved under %LOCALAPPDATA%\LeagueOverlay\builds.</summary>
+public sealed class BuildStore
+{
+    private sealed class FileShape
+    {
+        public int Format { get; set; } = 1;
+        public string Platform { get; set; } = "";
+        public string Patch { get; set; } = "";
+        public List<string> Matches { get; set; } = new();
+        public List<BuildRecord> Builds { get; set; } = new();
+    }
+
+    private static readonly JsonSerializerOptions Json = new() { DefaultIgnoreCondition = JsonIgnoreCondition.Never };
+    private readonly object _lock = new();
+    private readonly HashSet<string> _matchSet;
+    private readonly FileShape _file;
+    private IReadOnlyList<BuildRecord>? _snapshot;
+
+    public string Platform => _file.Platform;
+    public string Patch => _file.Patch;
+    public string FilePath { get; }
+    public int Version { get; private set; }
+    public int MatchCount { get { lock (_lock) return _file.Matches.Count; } }
+
+    private BuildStore(string path, FileShape file)
+    {
+        FilePath = path;
+        _file = file;
+        _matchSet = file.Matches.ToHashSet();
+    }
+
+    public static string DefaultRoot =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LeagueOverlay", "builds");
+
+    public static BuildStore Load(string root, string platform, string patch)
+    {
+        string path = Path.Combine(root, platform, $"{patch}.json");
+        FileShape? file = null;
+        try { if (File.Exists(path)) file = JsonSerializer.Deserialize<FileShape>(File.ReadAllText(path), Json); }
+        catch (Exception e) when (e is JsonException or IOException) { /* start over */ }
+        if (file is null || file.Platform != platform || file.Patch != patch) file = new FileShape { Platform = platform, Patch = patch };
+        return new BuildStore(path, file);
+    }
+
+    public bool Contains(string matchId) { lock (_lock) return _matchSet.Contains(matchId); }
+
+    public void Add(string matchId, IEnumerable<BuildRecord> builds)
+    {
+        lock (_lock)
+        {
+            if (!_matchSet.Add(matchId)) return;
+            _file.Matches.Add(matchId);
+            _file.Builds.AddRange(builds);
+            _snapshot = null;
+            Version++;
+        }
+    }
+
+    public IReadOnlyList<BuildRecord> Builds { get { lock (_lock) return _snapshot ??= _file.Builds.ToArray(); } }
+
+    /// <summary>Match ids with their builds. Every collected match adds one build per player, in order, so builds group by match.</summary>
+    public IReadOnlyList<(string MatchId, BuildRecord[] Builds)> ByMatch()
+    {
+        lock (_lock)
+        {
+            int per = _file.Matches.Count == 0 ? 0 : _file.Builds.Count / _file.Matches.Count;
+            if (per == 0 || per * _file.Matches.Count != _file.Builds.Count) return [];
+            return _file.Matches.Select((id, i) => (id, _file.Builds.GetRange(i * per, per).ToArray())).ToList();
+        }
+    }
+
+    private int _savedVersion;
+
+    /// <summary>Writes the file if anything was added since the last save.</summary>
+    public void Save()
+    {
+        string json;
+        lock (_lock)
+        {
+            if (Version == _savedVersion) return;
+            json = JsonSerializer.Serialize(_file, Json);
+            _savedVersion = Version;
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        File.WriteAllText(FilePath + ".tmp", json);
+        File.Move(FilePath + ".tmp", FilePath, overwrite: true);
+    }
+
+    /// <summary>The patch before "16.23" ("16.22"); null at the start of a season, when it can't be worked out.</summary>
+    public static string? PreviousPatch(string patch)
+    {
+        var parts = patch.Split('.');
+        return parts.Length == 2 && int.TryParse(parts[1], out var minor) && minor > 1 ? $"{parts[0]}.{minor - 1}" : null;
+    }
+
+    /// <summary>Deletes saved patches older than the ones kept (current and previous).</summary>
+    public static void Prune(string root, string platform, IEnumerable<string> keepPatches)
+    {
+        var dir = Path.Combine(root, platform);
+        if (!Directory.Exists(dir)) return;
+        var keep = keepPatches.Select(p => p + ".json").ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in Directory.GetFiles(dir, "*.json"))
+            if (!keep.Contains(Path.GetFileName(f))) try { File.Delete(f); } catch (IOException) { }
+    }
+}
+
+/// <summary>What high-ranked players build on one champion.</summary>
+/// <param name="Path">Most common finished item at each step (1st item, 2nd item, ...).</param>
+/// <param name="PathShare">Share of games with that item at that step.</param>
+/// <param name="ItemShare">Share of games in which each finished item was bought at all.</param>
+/// <param name="BootsShare">Share of games ending with each tier-2 boots.</param>
+public sealed record ChampionBuild(
+    int Games,
+    double WinRate,
+    IReadOnlyList<int> Path,
+    IReadOnlyList<double> PathShare,
+    IReadOnlyDictionary<int, double> ItemShare,
+    IReadOnlyDictionary<int, double> BootsShare,
+    string? Position,
+    string Patch)
+{
+    public double Share(int itemId) => ItemShare.GetValueOrDefault(itemId);
+
+    public static ChampionBuild? From(IReadOnlyList<BuildRecord> builds, string? position, string patch)
+    {
+        if (builds.Count == 0) return null;
+        var path = new List<int>();
+        var pathShare = new List<double>();
+        for (int step = 0; step < 6; step++)
+        {
+            // Most common item bought as the (step+1)-th finished item, among items not already in the path.
+            var top = builds.Where(b => b.Items.Length > step).Select(b => b.Items[step])
+                .Where(id => !path.Contains(id))
+                .GroupBy(id => id).Select(g => (Id: g.Key, Count: g.Count()))
+                .OrderByDescending(x => x.Count).ThenBy(x => x.Id)
+                .FirstOrDefault();
+            if (top.Count == 0) break;
+            path.Add(top.Id);
+            pathShare.Add(top.Count / (double)builds.Count);
+        }
+
+        var itemShare = builds.SelectMany(b => b.Items.Distinct()).GroupBy(id => id)
+            .ToDictionary(g => g.Key, g => g.Count() / (double)builds.Count);
+        var bootsShare = builds.Where(b => b.Boots != 0).GroupBy(b => b.Boots)
+            .ToDictionary(g => g.Key, g => g.Count() / (double)builds.Count);
+        return new ChampionBuild(builds.Count, builds.Count(b => b.Win) / (double)builds.Count, path, pathShare, itemShare, bootsShare, position, patch);
+    }
+}
+
+/// <summary>
+/// Popular builds for the current patch, topped up with the previous patch while the current one has few games
+/// (for example on the first days of a new patch).
+/// </summary>
+public sealed class BuildLibrary
+{
+    /// <summary>Fewer games than this on a champion and the numbers are too noisy to call "most common".</summary>
+    public const int MinGames = 12;
+
+    private readonly Dictionary<(int, string?), (int Version, ChampionBuild? Build)> _cache = new();
+    private readonly object _lock = new();
+
+    public BuildStore Current { get; }
+    public BuildStore? Previous { get; }
+
+    public BuildLibrary(BuildStore current, BuildStore? previous)
+    {
+        Current = current;
+        Previous = previous;
+    }
+
+    private int Version => Current.Version * 100_000 + (Previous?.Version ?? 0);
+
+    /// <summary>Builds for a champion (numeric key) in a role ("BOTTOM", ...). Falls back to all roles, then to the previous patch.</summary>
+    public ChampionBuild? For(int championKey, string? position)
+    {
+        lock (_lock)
+        {
+            int version = Version;
+            if (_cache.TryGetValue((championKey, position), out var hit) && hit.Version == version) return hit.Build;
+            var build = Compute(championKey, string.IsNullOrEmpty(position) ? null : position.ToUpperInvariant());
+            _cache[(championKey, position)] = (version, build);
+            return build;
+        }
+    }
+
+    private ChampionBuild? Compute(int champ, string? position)
+    {
+        var current = Current.Builds.Where(b => b.Champion == champ).ToList();
+        var both = Previous is null ? current : current.Concat(Previous.Builds.Where(b => b.Champion == champ)).ToList();
+        string bothPatch = Previous is null ? Current.Patch : $"{Current.Patch} + {Previous.Patch}";
+
+        // The role matters more than the patch (support Ashe builds nothing like ADC Ashe), so try both patches
+        // in the role before giving up on the role.
+        var pools = new[] { (current, Current.Patch), (both, bothPatch) };
+        if (position is not null)
+        {
+            foreach (var (pool, patch) in pools)
+            {
+                var inRole = pool.Where(b => b.Position == position).ToList();
+                if (inRole.Count >= MinGames) return ChampionBuild.From(inRole, position, patch);
+            }
+        }
+        foreach (var (pool, patch) in pools)
+            if (pool.Count >= MinGames) return ChampionBuild.From(pool, null, patch);
+        return null;
+    }
+}

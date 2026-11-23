@@ -1,0 +1,67 @@
+<Window x:Class="LeagueOverlay.OverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="League Overlay HUD"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ShowActivated="False" ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight"
+        FontFamily="Segoe UI" FontSize="13" Foreground="#E6E8EC"
+        TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="Grayscale"
+        UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <Window.Resources>
+        <SolidColorBrush x:Key="Muted" Color="#8B93A3"/>
+        <SolidColorBrush x:Key="Line" Color="#2A2F3A"/>
+    </Window.Resources>
+
+    <!-- Background opacity and whole-overlay opacity come from Settings (ApplyAppearance) -->
+    <Border x:Name="Panel" Width="340" CornerRadius="8" Background="#EB0F1115"
+            BorderBrush="#33FFFFFF" BorderThickness="1" Padding="12,10,12,10">
+        <StackPanel>
+            <!-- Team gold difference (gold spent on items) -->
+            <DockPanel LastChildFill="False">
+                <TextBlock x:Name="GoldText" DockPanel.Dock="Left" FontSize="18" FontWeight="Bold" Text="Waiting for game"/>
+                <TextBlock x:Name="GoldSub" DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource Muted}"/>
+            </DockPanel>
+
+            <!-- Lane leads: cells are created in code -->
+            <UniformGrid x:Name="LaneGrid" Rows="1" Columns="4" Margin="-2,8,-2,0"/>
+
+            <!-- Item suggestions -->
+            <StackPanel x:Name="ItemsSection">
+                <Border Height="1" Background="{StaticResource Line}" Margin="0,10,0,8"/>
+                <!-- Role reminder (trinket swap) -->
+                <Border x:Name="ReminderBox" Background="#33C89B3C" BorderBrush="#C89B3C" BorderThickness="1" CornerRadius="5"
+                        Padding="8,4" Margin="0,0,0,8" Visibility="Collapsed">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Left" Width="20" Height="20" CornerRadius="3" ClipToBounds="True" Margin="0,0,8,0" VerticalAlignment="Center">
+                            <Image x:Name="ReminderIcon"/>
+                        </Border>
+                        <TextBlock x:Name="ReminderText" FontWeight="SemiBold" Foreground="#F0C870" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    </DockPanel>
+                </Border>
+                <StackPanel x:Name="CorePanel">
+                <DockPanel>
+                    <Border DockPanel.Dock="Left" Width="36" Height="36" CornerRadius="4" ClipToBounds="True" Margin="0,0,10,0"
+                            Background="#2F3542" VerticalAlignment="Top">
+                        <Image x:Name="CoreIcon"/>
+                    </Border>
+                    <StackPanel>
+                        <DockPanel LastChildFill="True">
+                            <TextBlock x:Name="CoreCost" DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Muted}"/>
+                            <TextBlock TextTrimming="CharacterEllipsis">
+                                <Run Text="NEXT " FontSize="11" Foreground="{StaticResource Muted}"/><Run x:Name="CoreName" FontWeight="SemiBold" FontSize="14"/>
+                            </TextBlock>
+                        </DockPanel>
+                        <TextBlock x:Name="CoreReason" FontSize="11" Foreground="{StaticResource Muted}" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </DockPanel>
+                <StackPanel x:Name="SituationalPanel" Margin="0,6,0,0"/>
+                <TextBlock x:Name="BuyNowText" Margin="0,6,0,0" FontSize="12" Foreground="#C89B3C" TextWrapping="Wrap"/>
+                </StackPanel>
+            </StackPanel>
+
+            <TextBlock x:Name="HintText" Margin="0,8,0,0" FontSize="11" Foreground="#C89B3C" TextWrapping="Wrap" Visibility="Collapsed"
+                       Text="Move mode: drag to reposition"/>
+        </StackPanel>
+    </Border>
+</Window>

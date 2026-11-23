@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="LeagueOverlay.Core/LeagueOverlay.Core.csproj" />
+  <Project Path="LeagueOverlay.Tests/LeagueOverlay.Tests.csproj" />
+  <Project Path="LeagueOverlay/LeagueOverlay.csproj" />
+</Solution>
