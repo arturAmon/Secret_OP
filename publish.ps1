@@ -1,10 +1,11 @@
 # Builds everything to share into .\dist:
 #   LeagueOverlay-Setup-vX.Y.Z.exe   the installer to send to friends (includes your popular builds)
 #   LeagueOverlay-vX.Y.Z.zip         the same app without installing (exe + README)
-# Usage:  powershell -ExecutionPolicy Bypass -File .\publish.ps1 [-NoBuilds]
+# Usage:  powershell -ExecutionPolicy Bypass -File .\publish.ps1 [-NoBuilds] [-Release]
 #   -NoBuilds   leave your collected popular builds out of the installer
+#   -Release    also publish it on GitHub as release vX.Y.Z (bump <Version> in LeagueOverlay.csproj and commit first)
 # Needs Inno Setup 6 for the installer (winget install JRSoftware.InnoSetup --scope user); without it only the zip is made.
-param([switch]$NoBuilds)
+param([switch]$NoBuilds, [switch]$Release)
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
@@ -36,6 +37,17 @@ if ($iscc) {
     if ($LASTEXITCODE -ne 0) { throw "Installer build failed." }
 } else {
     Write-Warning "Inno Setup not found, so no installer was built (winget install JRSoftware.InnoSetup --scope user)."
+}
+
+if ($Release) {
+    # Publish to GitHub: tag vX.Y.Z on the current commit, attach installer and zip, mark as latest.
+    $gh = (Get-Command gh -ErrorAction SilentlyContinue).Source
+    if (-not $gh) { $gh = "$env:ProgramFiles\GitHub CLI\gh.exe" }
+    if (git status --porcelain) { throw "Commit your changes before releasing, so the release matches the code on GitHub." }
+    git push -q
+    & $gh release create "v$version" "dist\LeagueOverlay-Setup-v$version.exe" "dist\LeagueOverlay-v$version.zip" `
+        --title "League Overlay $version" --generate-notes --latest
+    if ($LASTEXITCODE -ne 0) { throw "GitHub release failed." }
 }
 
 Get-ChildItem dist -File | Format-Table Name, @{ n = 'Size (MB)'; e = { [math]::Round($_.Length / 1MB, 1) } } -AutoSize
