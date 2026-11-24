@@ -13,7 +13,7 @@
     <!-- LibraryImport (Native.cs) generates unsafe marshalling code -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>LeagueOverlay</AssemblyName>
-    <Version>1.10.0</Version>
+    <Version>1.11.0</Version>
     <Product>League Overlay</Product>
     <ApplicationIcon>skibidi_icon.ico</ApplicationIcon>
   </PropertyGroup>
