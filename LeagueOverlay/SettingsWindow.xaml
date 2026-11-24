@@ -3,8 +3,21 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings"
         Style="{StaticResource DarkWindow}"
-        Width="440" SizeToContent="Height" ResizeMode="NoResize"
+        Width="460" SizeToContent="Height" ResizeMode="CanResize" MinHeight="320"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <!-- Buttons and errors stay at the bottom; the settings scroll when the window is taller than the screen allows. -->
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource Panel}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="20,12,20,14">
+            <StackPanel>
+                <TextBlock x:Name="ErrorText" Margin="0,0,0,10" FontSize="12" Foreground="{StaticResource ErrBrush}" TextWrapping="Wrap" Visibility="Collapsed"/>
+                <DockPanel LastChildFill="False">
+                    <Button DockPanel.Dock="Left" Content="Reset to defaults" Click="Reset_Click"/>
+                    <Button DockPanel.Dock="Right" Content="Save" Style="{StaticResource AccentButton}" Margin="8,0,0,0" Click="Save_Click"/>
+                    <Button DockPanel.Dock="Right" Content="Cancel" Click="Cancel_Click"/>
+                </DockPanel>
+            </StackPanel>
+        </Border>
+    <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <StackPanel Margin="20">
         <TextBlock Text="Hotkeys" FontSize="15" FontWeight="SemiBold"/>
         <TextBlock Margin="0,2,0,10" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
@@ -150,12 +163,7 @@
             <TextBlock x:Name="BuildsShareResult" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
         </DockPanel>
 
-        <TextBlock x:Name="ErrorText" Margin="0,14,0,0" FontSize="12" Foreground="{StaticResource ErrBrush}" TextWrapping="Wrap" Visibility="Collapsed"/>
-
-        <DockPanel Margin="0,18,0,0" LastChildFill="False">
-            <Button DockPanel.Dock="Left" Content="Reset to defaults" Click="Reset_Click"/>
-            <Button DockPanel.Dock="Right" Content="Save" Style="{StaticResource AccentButton}" Margin="8,0,0,0" Click="Save_Click"/>
-            <Button DockPanel.Dock="Right" Content="Cancel" Click="Cancel_Click"/>
-        </DockPanel>
     </StackPanel>
+    </ScrollViewer>
+    </DockPanel>
 </Window>

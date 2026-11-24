@@ -41,6 +41,8 @@ public partial class SettingsWindow : Window
         SetOpacitySliders(settings.BackgroundOpacity, settings.OverlayOpacity);
         _preview = preview; // set after the sliders so loading them doesn't count as a change
         SourceInitialized += (_, _) => Native.UseDarkTitleBar(this);
+        // Never taller than the screen it opens on (minus a margin); the settings scroll inside instead.
+        MaxHeight = SystemParameters.WorkArea.Height - 40;
 
         Load(settings.ToggleOverlay, settings.MoveOverlay, settings.Quit, settings.LevelWeight, settings.PollSeconds);
 
