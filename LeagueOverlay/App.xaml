@@ -10,7 +10,10 @@
         <SolidColorBrush x:Key="LineBrush" Color="#2A2F3A"/>
         <SolidColorBrush x:Key="TextBrush" Color="#E6E8EC"/>
         <SolidColorBrush x:Key="MutedBrush" Color="#8B93A3"/>
-        <SolidColorBrush x:Key="AccentBrush" Color="#C89B3C"/>
+        <!-- Accents from the app icon (see Theme.cs): yellow = main accent, blue = links/navigation, pink = rival/selection -->
+        <SolidColorBrush x:Key="AccentBrush" Color="#F7FD0C"/>
+        <SolidColorBrush x:Key="Accent2Brush" Color="#2CCDD5"/>
+        <SolidColorBrush x:Key="Accent3Brush" Color="#F151DF"/>
         <SolidColorBrush x:Key="OkBrush" Color="#4CAF7A"/>
         <SolidColorBrush x:Key="ErrBrush" Color="#E05D5D"/>
 
@@ -19,6 +22,7 @@
             <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Icon" Value="pack://application:,,,/skibidi_icon.ico"/>
         </Style>
 
         <Style TargetType="Button">
@@ -91,12 +95,12 @@
         </Style>
 
         <Style TargetType="Hyperlink">
-            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource Accent2Brush}"/>
         </Style>
 
         <Style TargetType="ProgressBar">
             <Setter Property="Height" Value="4"/>
-            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource Accent2Brush}"/>
             <Setter Property="Background" Value="{StaticResource Panel2}"/>
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
@@ -177,7 +181,7 @@
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{StaticResource Panel2}"/>
-                                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource Accent2Brush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -208,7 +212,7 @@
                                         </Trigger>
                                         <Trigger Property="IsSelected" Value="True">
                                             <Setter TargetName="Bd" Property="Background" Value="{StaticResource Panel2}"/>
-                                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent3Brush}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>

@@ -26,7 +26,9 @@ public sealed record PostGamePlayer(
     // for fun
     int Pings = 0, bool DancedWithHerald = false,
     // minute by minute, from the match timeline (index = minute)
-    int[]? GoldByMinute = null, int[]? CsByMinute = null, int[]? XpByMinute = null)
+    int[]? GoldByMinute = null, int[]? CsByMinute = null, int[]? XpByMinute = null,
+    // final inventory in the stored slot layout (item0-item6, role-quest slot), and gold spent on items
+    int[]? Slots = null, int GoldSpent = 0)
 {
     public int Multikills => DoubleKills + TripleKills + QuadraKills + PentaKills;
     public int ObjectiveTakedowns => DragonTakedowns + BaronTakedowns + HeraldTakedowns + VoidgrubKills;
@@ -38,7 +40,7 @@ public sealed record PostGamePlayer(
 public sealed record PostGameStats(string MatchId, List<PostGamePlayer> Players, int Format = 1)
 {
     /// <summary>Bump when Parse learns new fields; saved games with an older format are fetched again.</summary>
-    public const int CurrentFormat = 2;
+    public const int CurrentFormat = 3; // 3: final inventory (Slots, GoldSpent)
 
     public PostGamePlayer? Find(string riotId) => Players.FirstOrDefault(p => RiotIds.Same(p.RiotId, riotId));
 
@@ -106,7 +108,8 @@ public sealed record PostGameStats(string MatchId, List<PostGamePlayer> Players,
                 MaxCsLead: (int)C("maxCsAdvantageOnLaneOpponent"),
                 DragonTakedowns: (int)C("dragonTakedowns"), BaronTakedowns: (int)C("baronTakedowns"), HeraldTakedowns: (int)C("riftHeraldTakedowns"),
                 VoidgrubKills: (int)C("voidMonsterKill"), TurretTakedowns: I("turretTakedowns"), ObjectivesStolen: I("objectivesStolen"),
-                Pings: pings, DancedWithHerald: C("dancedWithRiftHerald") > 0));
+                Pings: pings, DancedWithHerald: C("dancedWithRiftHerald") > 0,
+                Slots: Enumerable.Range(0, 7).Select(i => I($"item{i}")).Append(I("roleBoundItem")).ToArray(), GoldSpent: I("goldSpent")));
         }
         return new PostGameStats(match.GetProperty("metadata").GetProperty("matchId").GetString() ?? "", players, CurrentFormat);
     }
@@ -164,7 +167,10 @@ public static class PostGameFetcher
             }
             catch (HttpRequestException) { } // the timeline is a bonus; keep the rest without it
             var result = stats.Find(me.Key)?.Win is { } win ? (win ? "Win" : "Lose") : record.Result;
-            return record with { PostGame = stats, Result = result, ResultInferred = false };
+            // A saved inventory that's empty (the client blanked it at the very end) is filled from Riot's final numbers.
+            var players = record.Players.Select(p => p.Items.All(i => i == 0) && stats.Find(p.Key) is { Slots: { } slots } pg
+                ? p with { Items = slots, ItemGold = pg.GoldSpent } : p).ToList();
+            return record with { PostGame = stats, Result = result, ResultInferred = false, Players = players };
         }
         return null;
     }

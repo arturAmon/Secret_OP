@@ -38,6 +38,9 @@ public sealed class Settings
     [JsonIgnore] public Hotkey MoveOverlay => Hotkey.Parse(MoveOverlayHotkey, Hotkey.Parse(DefaultMoveHotkey, default));
     [JsonIgnore] public Hotkey Quit => Hotkey.Parse(QuitHotkey, Hotkey.Parse(DefaultQuitHotkey, default));
 
+    /// <summary>Surprise build mode: unexpected builds instead of the usual suggestions.</summary>
+    public bool SurpriseMode { get; set; }
+
     /// <summary>Your own Riot ID ("Name#Tag"), for pulling your recent games. Filled in automatically from the first game the app sees.</summary>
     public string? MyRiotId { get; set; }
 

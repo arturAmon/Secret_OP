@@ -23,6 +23,11 @@ public partial class ControlWindow : Window
     public Func<string, string>? ExportBuilds { get; set; }
     public Func<string, Task<string>>? ImportBuilds { get; set; }
 
+    /// <summary>Surprise build mode switched on/off, or a new surprise build asked for.</summary>
+    public event Action<bool>? SurpriseToggled;
+    public event Action? RerollRequested;
+    private SurprisePlan? _surprisePlan;
+
     /// <summary>Raised when the user asks to fetch recent games (or changed their Riot ID in Settings).</summary>
     public event Action? ImportRequested;
 
@@ -51,6 +56,9 @@ public partial class ControlWindow : Window
         RefreshStatus();
         if (System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version is { } v) VersionRun.Text = $"  v{v.ToString(3)}";
         RefreshRival();
+        SurpriseBox.IsChecked = _settings.SurpriseMode;
+        ShowSurprise(null);
+        _icons.IconLoaded += () => { if (_surprisePlan is not null) ShowSurprise(_surprisePlan); };
     }
 
     public void ShowHotkeyWarning(IReadOnlyList<string> failed)
@@ -144,6 +152,45 @@ public partial class ControlWindow : Window
         Graph.History = history;
     }
 
+    /// <summary>The surprise build card: the plan for this game, or what the mode does when there's no game yet.</summary>
+    public void ShowSurprise(SurprisePlan? plan)
+    {
+        _surprisePlan = plan;
+        bool on = SurpriseBox.IsChecked == true;
+        SurpriseItems.Children.Clear();
+        SurpriseTitle.Visibility = RerollButton.Visibility = on && plan is not null ? Visibility.Visible : Visibility.Collapsed;
+        if (!on)
+        {
+            SurpriseText.Text = "Off. When on, every game gets an unexpected build your champion still scales with (AP Ezreal, healing Senna...).";
+            return;
+        }
+        if (plan is null)
+        {
+            SurpriseText.Text = "On. Your next game gets a surprise build; the overlay will suggest its items.";
+            return;
+        }
+        SurpriseTitle.Text = plan.Title;
+        SurpriseText.Text = plan.Theme.Pitch;
+        foreach (var id in plan.Path.Append(plan.Boots).Where(id => id > 0))
+        {
+            SurpriseItems.Children.Add(new Border
+            {
+                Width = 30, Height = 30, CornerRadius = new CornerRadius(4), ClipToBounds = true, Margin = new Thickness(0, 0, 4, 4),
+                Background = (Brush)FindResource("Panel2"), ToolTip = _data.Items.Get(id)?.Name,
+                Child = new System.Windows.Controls.Image { Source = _icons.Item(id) },
+            });
+        }
+    }
+
+    private void Surprise_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) return; // initial value
+        SurpriseToggled?.Invoke(SurpriseBox.IsChecked == true);
+        ShowSurprise(SurpriseBox.IsChecked == true ? _surprisePlan : null);
+    }
+
+    private void Reroll_Click(object sender, RoutedEventArgs e) => RerollRequested?.Invoke();
+
     public void ShowImportStatus(string text, bool busy)
     {
         ImportStatus.Text = text;
@@ -180,6 +227,9 @@ public partial class ControlWindow : Window
         if (RivalDuel.Compare(g.Players, _settings.Rival, g.Duration / 60, g.PostGame) is not { } duel) return;
         try { _rivalry.Record(g, duel); } catch (System.IO.IOException) { }
         RefreshRival();
+        SurpriseBox.IsChecked = _settings.SurpriseMode;
+        ShowSurprise(null);
+        _icons.IconLoaded += () => { if (_surprisePlan is not null) ShowSurprise(_surprisePlan); };
     }
 
     private void SetRival(string riotId)
@@ -194,6 +244,9 @@ public partial class ControlWindow : Window
         // Games already saved with this player count toward the tally straight away.
         foreach (var g in GameList.Items.OfType<ListBoxItem>().Select(i => i.Tag).OfType<GameRecord>()) RecordRivalry(g);
         RefreshRival();
+        SurpriseBox.IsChecked = _settings.SurpriseMode;
+        ShowSurprise(null);
+        _icons.IconLoaded += () => { if (_surprisePlan is not null) ShowSurprise(_surprisePlan); };
         ShowSelectedGame();
         RivalChanged?.Invoke();
     }

@@ -36,6 +36,10 @@ public static class Fixtures
         Item(3916, "Oblivion Orb", 800, 800, S((25, "Ability Power")), "SpellDamage", into: "3165", passive: "Grievous Wounds", extra: "applies 40% Wounds"),
         Item(3123, "Executioner's Calling", 800, 800, S((15, "Attack Damage")), "Damage", into: "3033", passive: "Grievous Wounds", extra: "applies 40% Wounds"),
         Item(2003, "Health Potion", 50, 50, "", "Consumable"),
+        Item(1082, "Dark Seal", 350, 350, S((15, "Ability Power"), (50, "Health")), "SpellDamage,Health", into: "3041",
+            passive: "Glory", extra: "Takedowns grant Glory, up to 10. 5 Glory is lost on death. Gain 4 Ability Power per Glory."),
+        Item(3041, "Mejai's Soulstealer", 1500, 1150, S((20, "Ability Power"), (100, "Health")), "SpellDamage,Health", "1082", depth: 2,
+            passive: "Glory", extra: "Takedowns grant Glory, up to 25. 10 Glory is lost on death. Gain 5 Ability Power per Glory."),
         Item(3340, "Stealth Ward", 0, 0, "", "Trinket,Vision"),
         Item(3363, "Farsight Alteration", 0, 0, "", "Trinket,Vision"),
         Item(3364, "Oracle Lens", 0, 0, "", "Trinket,Vision"),
@@ -84,7 +88,11 @@ public static class Fixtures
           "Syndra":   { "name": "Syndra",   "tags": ["Mage"],              "info": { "attack": 2, "defense": 3, "magic": 9 } },
           "Annie":    { "name": "Annie",    "tags": ["Mage"],              "info": { "attack": 2, "defense": 3, "magic": 10 } },
           "Caitlyn":  { "key": "51", "name": "Caitlyn",  "tags": ["Marksman"],          "info": { "attack": 8, "defense": 2, "magic": 2 } },
-          "MonkeyKing": { "name": "Wukong", "tags": ["Fighter","Tank"],    "info": { "attack": 8, "defense": 5, "magic": 2 } }
+          "MonkeyKing": { "name": "Wukong", "tags": ["Fighter","Tank"],    "info": { "attack": 8, "defense": 5, "magic": 2 } },
+          "Veigar":   { "name": "Veigar",   "tags": ["Mage"],              "info": { "attack": 2, "defense": 2, "magic": 10 },
+                        "stats": { "hp": 580, "hpperlevel": 108, "armor": 18, "armorperlevel": 5.2, "attackrange": 550 } },
+          "Senna":    { "name": "Senna",    "tags": ["Support","Marksman"], "info": { "attack": 7, "defense": 2, "magic": 6 },
+                        "stats": { "hp": 530, "hpperlevel": 89, "armor": 25, "armorperlevel": 4, "attackrange": 600 } }
         } }
         """;
 

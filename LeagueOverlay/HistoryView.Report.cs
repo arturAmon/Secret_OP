@@ -102,7 +102,7 @@ internal sealed partial class HistoryView
             var name = new TextBlock
             {
                 Text = isMe ? "You" : RiotIds.GameName(p.RiotId), FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center,
-                Foreground = isMe ? Accent : Text, FontWeight = isMe ? FontWeights.SemiBold : FontWeights.Normal, ToolTip = p.Champion,
+                Foreground = isMe ? YouBrush : Text, FontWeight = isMe ? FontWeights.SemiBold : FontWeights.Normal, ToolTip = p.Champion,
             };
             // Bar and value share a star column; the bar's width is a share of it.
             var barArea = new Grid();

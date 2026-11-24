@@ -12,7 +12,8 @@
             <ColumnDefinition Width="340"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
-    <StackPanel Grid.Column="0" Margin="0,0,20,0">
+    <ScrollViewer Grid.Column="0" Margin="0,0,20,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel>
         <TextBlock>
             <Run Text="League Overlay" FontSize="20" FontWeight="Bold"/><Run x:Name="VersionRun" FontSize="12" Foreground="{StaticResource MutedBrush}"/>
         </TextBlock>
@@ -71,11 +72,29 @@
             </StackPanel>
         </Border>
 
+        <!-- Surprise build mode -->
+        <Border Background="{StaticResource Panel}" CornerRadius="8" Padding="14,10" Margin="0,10,0,0">
+            <StackPanel>
+                <DockPanel>
+                    <CheckBox x:Name="SurpriseBox" DockPanel.Dock="Right" VerticalAlignment="Center" Checked="Surprise_Changed" Unchecked="Surprise_Changed"
+                              ToolTip="Turn surprise build mode on or off"/>
+                    <TextBlock Text="Surprise build mode" FontWeight="SemiBold"/>
+                </DockPanel>
+                <TextBlock x:Name="SurpriseTitle" Margin="0,6,0,0" FontSize="14" FontWeight="Bold" Foreground="{StaticResource Accent3Brush}" Visibility="Collapsed"/>
+                <TextBlock x:Name="SurpriseText" Margin="0,4,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           Text="Off. When on, every game gets an unexpected build your champion still scales with (AP Ezreal, healing Senna...)."/>
+                <WrapPanel x:Name="SurpriseItems" Margin="0,6,0,0"/>
+                <Button x:Name="RerollButton" Content="Reroll" HorizontalAlignment="Left" Margin="0,6,0,0" Click="Reroll_Click" Visibility="Collapsed"
+                        ToolTip="Pick a different surprise build for this game"/>
+            </StackPanel>
+        </Border>
+
         <!-- Actions -->
         <DockPanel Margin="0,18,0,0" LastChildFill="False">
             <Button x:Name="SettingsButton" DockPanel.Dock="Left" Content="Settings" Style="{StaticResource AccentButton}" Click="Settings_Click"/>
         </DockPanel>
     </StackPanel>
+    </ScrollViewer>
 
     <!-- Right side: "This game" (live graph) and "History" (last 10 games) -->
     <Border Grid.Column="1" Background="{StaticResource Panel}" CornerRadius="8" Padding="14,12">
@@ -91,9 +110,9 @@
                 <CheckBox x:Name="ComponentsBox" DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="{StaticResource TextBrush}"
                           Content="Show components" Checked="Components_Changed" Unchecked="Components_Changed"/>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,18,0">
-                    <Rectangle Width="14" Height="3" RadiusX="1.5" RadiusY="1.5" Fill="#3D8EF0" VerticalAlignment="Center"/>
+                    <Rectangle Width="14" Height="3" RadiusX="1.5" RadiusY="1.5" Fill="#1CA6AE" VerticalAlignment="Center"/>
                     <TextBlock Text="Your team ahead" Margin="6,0,14,0" FontSize="12"/>
-                    <Rectangle Width="14" Height="3" RadiusX="1.5" RadiusY="1.5" Fill="#F0603C" VerticalAlignment="Center"/>
+                    <Rectangle Width="14" Height="3" RadiusX="1.5" RadiusY="1.5" Fill="#B02FA0" VerticalAlignment="Center"/>
                     <TextBlock Text="Enemy ahead" Margin="6,0,0,0" FontSize="12"/>
                 </StackPanel>
                 <!-- Last, so the legend keeps its width and this wraps instead -->

@@ -42,6 +42,31 @@ public sealed class ActivePlayer
     public string? SummonerName { get; set; }
     public double CurrentGold { get; set; }
     public int Level { get; set; }
+    public ChampionStats? ChampionStats { get; set; }
+    public FullRunes? FullRunes { get; set; }
+}
+
+/// <summary>Your champion's current stats as the game shows them (items, runes and stacks included).</summary>
+public sealed class ChampionStats
+{
+    public double AbilityPower { get; set; }
+    public double AttackDamage { get; set; }
+    public double Armor { get; set; }
+    public double AttackRange { get; set; }
+    /// <summary>The client reports this as a fraction (0.25); see CritPercent.</summary>
+    public double CritChance { get; set; }
+    public double MaxHealth { get; set; }
+    public double CritPercent => CritChance <= 1 ? CritChance * 100 : CritChance;
+}
+
+public sealed class FullRunes
+{
+    public List<RuneRef> StatRunes { get; set; } = new();
+}
+
+public sealed class RuneRef
+{
+    public int Id { get; set; }
 }
 
 public sealed class Player
@@ -115,6 +140,10 @@ public sealed class GameEvent
     public string? Result { get; set; }
     /// <summary>For TurretKilled events, e.g. "Turret_T2_C_01_A".</summary>
     public string? TurretKilled { get; set; }
+    /// <summary>For ChampionKill events: player names (game names), or a champion/minion/turret name for non-players.</summary>
+    public string? KillerName { get; set; }
+    public string? VictimName { get; set; }
+    public List<string> Assisters { get; set; } = new();
 }
 
 public sealed class GameData

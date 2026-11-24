@@ -15,7 +15,12 @@
     <AssemblyName>LeagueOverlay</AssemblyName>
     <Version>1.10.0</Version>
     <Product>League Overlay</Product>
-    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationIcon>skibidi_icon.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Window and taskbar icon (pack://application:,,,/skibidi_icon.ico) -->
+    <Resource Include="skibidi_icon.ico" />
+  </ItemGroup>
 
 </Project>

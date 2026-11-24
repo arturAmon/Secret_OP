@@ -25,6 +25,10 @@ public partial class App : Application
     // Records the current game for the History tab; the last game's timeline stays on "This game" until the next one.
     private readonly GameRecorder _recorder = new();
     private readonly GameRecordStore _games = new(GameRecordStore.DefaultRoot);
+    private readonly StackTracker _stacks = new();
+    // Surprise build: one plan per game (and champion) until rerolled.
+    private SurprisePlan? _surprise;
+    private string? _surpriseGame;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -61,6 +65,8 @@ public partial class App : Application
         _control.StopRequested += Shutdown;
         _control.BuildSettingsChanged += RestartBuilds;
         _control.ImportRequested += () => ImportRecentGames(userAsked: true);
+        _control.SurpriseToggled += on => { _settings.SurpriseMode = on; _settings.Save(); };
+        _control.RerollRequested += () => { _surprise = null; }; // a new plan on the next read
         _control.ExportBuilds = ExportBuilds;
         _control.ImportBuilds = ImportBuildsAsync;
         _control.ShowHotkeyWarning(_window.ApplyHotkeys());
@@ -125,7 +131,8 @@ public partial class App : Application
 
                 game = await live.TryGetAsync(ct);
                 // Learn who "you" are from the game client, for fetching your recent games later.
-                if (game?.ActivePlayer?.RiotId is { Length: > 0 } myId && !RiotIds.Same(myId, _settings.MyRiotId))
+                // Only from the real game client: a test client (LEAGUE_LIVE_URL) must not overwrite who you are.
+                if (live.Uri == LiveClient.DefaultUri && game?.ActivePlayer?.RiotId is { Length: > 0 } myId && !RiotIds.Same(myId, _settings.MyRiotId))
                 {
                     _settings.MyRiotId = myId;
                     _settings.Save();
@@ -135,9 +142,10 @@ public partial class App : Application
                 var library = _library;
                 Func<int, string?, ChampionBuild?>? popular = library is null ? null : library.For;
                 string? rivalId = _settings.Rival;
+                var surprise = SurpriseFor(game, current);
                 var (state, snapshot, finished, matchup, duel) = game is null ? (null, null, FinishGame(), null, null) : await Task.Run(() =>
                 {
-                    var s = OverlayState.Build(game, current, _settings.LevelWeight, popular);
+                    var s = OverlayState.Build(game, current, _settings.LevelWeight, popular, _stacks, surprise);
                     var mine = game.Me is { } m && current.Champion(m.ChampionKey) is { Key: > 0 } c ? library?.For(c.Key, m.Position) : null;
                     var players = RecordedPlayer.AllFrom(game, current.Items);
                     double minutes = (game.GameData?.GameTime ?? 0) / 60;
@@ -172,6 +180,20 @@ public partial class App : Application
             try { await Task.Delay(TimeSpan.FromSeconds(game is null ? _settings.IdlePollSeconds : _settings.PollSeconds), ct); }
             catch (OperationCanceledException) { break; }
         }
+    }
+
+    /// <summary>The surprise plan for this game when the mode is on: kept for the whole game, new for a new game, champion or reroll.</summary>
+    private SurprisePlan? SurpriseFor(LiveGame? game, StaticData data)
+    {
+        if (!_settings.SurpriseMode || game?.Me is not { } me || data.Champion(me.ChampionKey) is not { } champ) return null;
+        string gameKey = string.Join("|", game.AllPlayers.Select(p => p.RiotId ?? p.SummonerName)) + "|" + champ.Id;
+        if (_surprise is null || _surpriseGame != gameKey)
+        {
+            _surprise = SurpriseBuilder.Plan(champ, data.Items, Random.Shared.Next());
+            _surpriseGame = gameKey;
+            _control?.ShowSurprise(_surprise);
+        }
+        return _surprise;
     }
 
     /// <summary>The game client went away: wrap up the recorded game (null if none, or too short to keep).</summary>

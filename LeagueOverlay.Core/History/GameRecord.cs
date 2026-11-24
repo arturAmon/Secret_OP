@@ -134,7 +134,7 @@ public sealed class GameRecorder
     {
         var snapshot = _history.Snapshot();
         var meKey = snapshot.Players.FirstOrDefault(p => p.IsMe)?.Key;
-        var mine = snapshot.Items.Where(e => e.PlayerKey == meKey && e.Completed).ToList();
+        var mine = snapshot.Items.Where(e => e.PlayerKey == meKey && e.Completed && !e.Sold).ToList();
         // Tier-3 boots cost nothing on top of their tier-2 pair: they're upgrades that happen on their own
         // (e.g. the bot lane quest's Gunmetal Greaves), not a buying decision.
         mine.RemoveAll(e => MatchParser.TierTwoBoots(e.ItemId, _data.Items) is { } tierTwo && tierTwo != e.ItemId);
@@ -169,7 +169,7 @@ public sealed class GameRecorder
         var steps = _steps.ToList();
         string? inferred = _result is null ? game?.ResultFromNexusTurrets() : null;
         string result = _result ?? inferred ?? "Unknown";
-        var lastEvents = game?.Events?.Events.TakeLast(8).Select(e => $"{e.EventTime:0}s {e.EventName}").ToList();
+        var lastEvents = game?.Events?.Events.TakeLast(8).Select(e => $"{e.EventTime:0}s {e.EventName}{(e.TurretKilled is { } t ? " " + t : "")}").ToList();
         var popular = _popular;
         _lastGame = null; _lastState = null; _popular = null; _result = null; _steps.Clear();
 

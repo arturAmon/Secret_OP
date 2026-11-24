@@ -17,7 +17,7 @@ public partial class OverlayWindow : Window
     private static readonly Brush Red = Frozen(0xE0, 0x5D, 0x5D);
     private static readonly Brush Muted = Frozen(0x8B, 0x93, 0xA3);
     private static readonly Brush Text = Frozen(0xE6, 0xE8, 0xEC);
-    private static readonly Brush Accent = Frozen(0xC8, 0x9B, 0x3C);
+    private static readonly Brush Accent = Theme.YellowBrush;
     private static readonly Brush CellBorder = Frozen(0x2A, 0x2F, 0x3A);
     private static readonly Brush IconBackground = Frozen(0x2F, 0x35, 0x42);
     private static readonly Brush PanelBorder = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
@@ -46,7 +46,7 @@ public partial class OverlayWindow : Window
         InitializeComponent();
         ApplyAppearance();
         // Icons arrive after the first draw; redraw the current state once they're in.
-        _icons.IconLoaded += () => { if (_lastState is not null) RenderItems(_lastState.Items); };
+        _icons.IconLoaded += () => { if (_lastState is not null) { RenderItems(_lastState.Items); RenderStacks(_lastState.Stacks); } };
         BuildLaneCells();
         PlaceWindow();
         MouseLeftButtonDown += (_, _) => { if (_moveMode) DragMove(); };
@@ -205,6 +205,7 @@ public partial class OverlayWindow : Window
         }
 
         RenderGold(state.Gold);
+        RenderStacks(state.Stacks);
         RenderLanes(state.Lanes, state.MyLane);
         RenderItems(state.Items);
         UpdateVisibility();
@@ -249,7 +250,36 @@ public partial class OverlayWindow : Window
 
             cell.BorderBrush = highlight ? Accent : CellBorder;
             cell.BorderThickness = new Thickness(highlight ? 2 : 1);
-            cell.Background = highlight ? new SolidColorBrush(Color.FromArgb(0x26, 0xC8, 0x9B, 0x3C)) : null;
+            cell.Background = highlight ? Theme.Tint(Theme.Yellow, 0x26) : null;
+        }
+    }
+
+    private void RenderStacks(ValueList<StackInfo>? stacks)
+    {
+        StacksPanel.Children.Clear();
+        StacksPanel.Visibility = stacks is { Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
+        if (stacks is null) return;
+        foreach (var s in stacks)
+        {
+            var title = new TextBlock { FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Accent, Text = s.Title.ToUpperInvariant() };
+            var value = new TextBlock { TextWrapping = TextWrapping.Wrap };
+            value.Inlines.Add(new System.Windows.Documents.Run(s.Value) { FontWeight = FontWeights.SemiBold, FontSize = 14 });
+            value.Inlines.Add(new System.Windows.Documents.Run("  " + s.Detail) { Foreground = Muted, FontSize = 11 });
+            var meaning = new TextBlock { Text = s.Meaning, FontSize = 10.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap };
+            var text = new StackPanel { Children = { title, value, meaning } };
+            var row = new DockPanel { Margin = new Thickness(0, 2, 0, 4) };
+            if (s.ItemId is { } id)
+            {
+                var icon = new Border
+                {
+                    Width = 26, Height = 26, CornerRadius = new CornerRadius(3), ClipToBounds = true, Margin = new Thickness(0, 2, 8, 0),
+                    Background = IconBackground, VerticalAlignment = VerticalAlignment.Top, Child = new Image { Source = _icons.Item(id) },
+                };
+                DockPanel.SetDock(icon, Dock.Left);
+                row.Children.Add(icon);
+            }
+            row.Children.Add(text);
+            StacksPanel.Children.Add(row);
         }
     }
 

@@ -143,8 +143,19 @@ public static class MatchImporter
                         if (info?.IsConsumableOrTrinket == true) break;
                         items.Add(new ItemEvent(at, who, id, info?.Name ?? id.ToString(), data.Items.IsCompleted(new PlayerItem { ItemID = id })));
                         break;
+                    case "ITEM_SOLD" when e.TryGetProperty("itemId", out var soldId):
+                        var soldInfo = data.Items.Get(soldId.GetInt32());
+                        if (soldInfo?.IsConsumableOrTrinket == true) break;
+                        items.Add(new ItemEvent(at, who, soldId.GetInt32(), soldInfo?.Name ?? soldId.ToString(),
+                            data.Items.IsCompleted(new PlayerItem { ItemID = soldId.GetInt32() }), Sold: true));
+                        break;
+                    case "ITEM_UNDO" when e.TryGetProperty("afterId", out var after) && after.GetInt32() > 0
+                                          && e.TryGetProperty("beforeId", out var b0) && b0.GetInt32() == 0:
+                        int soldIdx = items.FindLastIndex(x => x.PlayerKey == who && x.ItemId == after.GetInt32() && x.Sold);
+                        if (soldIdx >= 0) items.RemoveAt(soldIdx); // a sale taken back
+                        break;
                     case "ITEM_UNDO" when e.TryGetProperty("beforeId", out var before):
-                        int idx = items.FindLastIndex(x => x.PlayerKey == who && x.ItemId == before.GetInt32());
+                        int idx = items.FindLastIndex(x => x.PlayerKey == who && x.ItemId == before.GetInt32() && !x.Sold);
                         if (idx >= 0) items.RemoveAt(idx);
                         break;
                     case "LEVEL_UP" when e.TryGetProperty("level", out var lv):
@@ -155,7 +166,7 @@ public static class MatchImporter
         }
 
         // Your finished items in order (tier-3 boots are automatic upgrades, not purchases).
-        var build = items.Where(e => e.PlayerKey == meKey && e.Completed)
+        var build = items.Where(e => e.PlayerKey == meKey && e.Completed && !e.Sold)
             .Where(e => MatchParser.TierTwoBoots(e.ItemId, data.Items) is not { } tierTwo || tierTwo == e.ItemId)
             .Select(e => new BuildStep(e.Time, e.ItemId, e.Name, null, null, null, [], [], StepMatch.NoSuggestion))
             .ToList();

@@ -8,7 +8,8 @@ public sealed record HistoryPlayer(string Key, string Name, string ChampionKey, 
 /// <summary>Team item gold (the same numbers the overlay shows) at one moment of game time.</summary>
 public sealed record GoldSample(double Time, int MyTeam, int Enemy);
 
-public sealed record ItemEvent(double Time, string PlayerKey, int ItemId, string Name, bool Completed);
+/// <param name="Sold">True for an item sold back to the shop (rather than bought).</param>
+public sealed record ItemEvent(double Time, string PlayerKey, int ItemId, string Name, bool Completed, bool Sold = false);
 
 public sealed record LevelEvent(double Time, string PlayerKey, int Level);
 
@@ -86,26 +87,26 @@ public sealed class GameHistory
             if (!newGame || recordInitial)
             {
                 var before = newGame ? new Dictionary<int, int>() : _lastItems[key];
-                bool anyNew = false;
+                var newIds = new List<int>();
                 foreach (var (id, count) in counts)
                 {
                     for (int n = before.GetValueOrDefault(id); n < count; n++)
                     {
                         var item = p.Items.First(i => i.ItemID == id);
                         _items.Add(new ItemEvent(t, key, id, catalog.Get(id)?.Name ?? item.DisplayName ?? id.ToString(), catalog.IsCompleted(item)));
-                        anyNew = true;
+                        newIds.Add(id);
                     }
                 }
-                // Gone again within seconds and nothing new took its place: an undo or a sell-back, not a build-up.
-                if (!anyNew)
+                // Items that disappeared: built into something new, upgraded, undone, or sold.
+                foreach (var (id, count) in before)
                 {
-                    foreach (var (id, count) in before)
+                    for (int n = counts.GetValueOrDefault(id); n < count; n++)
                     {
-                        for (int n = counts.GetValueOrDefault(id); n < count; n++)
-                        {
-                            int idx = _items.FindLastIndex(e => e.PlayerKey == key && e.ItemId == id);
-                            if (idx >= 0 && t - _items[idx].Time <= UndoSeconds) _items.RemoveAt(idx);
-                        }
+                        if (UsedUp(id, newIds, catalog)) continue;
+                        int idx = _items.FindLastIndex(e => e.PlayerKey == key && e.ItemId == id && !e.Sold);
+                        if (idx >= 0 && t - _items[idx].Time <= UndoSeconds) { _items.RemoveAt(idx); continue; } // undo: as if never bought
+                        var info = catalog.Get(id);
+                        _items.Add(new ItemEvent(t, key, id, info?.Name ?? id.ToString(), info?.IsCompleted == true || catalog.IsUpgradedBoots(new PlayerItem { ItemID = id }), Sold: true));
                     }
                 }
             }
@@ -143,6 +144,18 @@ public sealed class GameHistory
             _players.Add(new HistoryPlayer(Key(p), p.ChampionName ?? p.ChampionKey, p.ChampionKey, p.Team == myTeam, p.IsSameAs(game.ActivePlayer!)));
             _lastLevels[Key(p)] = p.Level;
         }
+    }
+
+    /// <summary>
+    /// True if a vanished item went into something that appeared at the same time (a component of a new item, boots
+    /// upgrading, Dark Seal into Mejai's) or is a support quest item that upgrades by itself: not a sale.
+    /// </summary>
+    public static bool UsedUp(int id, IReadOnlyCollection<int> newIds, ItemCatalog catalog)
+    {
+        var info = catalog.Get(id);
+        if (info is { IsSupportItem: true }) return true;
+        if (info is not null && info.Into.Any(newIds.Contains)) return true;
+        return newIds.Any(n => catalog.Get(n) is { } created && catalog.Components(created).Any(c => c.Id == id));
     }
 
     private static int LaneOrder(Player p) => p.Position?.ToUpperInvariant() switch

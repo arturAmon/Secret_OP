@@ -33,7 +33,7 @@ public sealed record ThreatProfile(double ApShare, ValueList<string> Tanks, Valu
 public static class ItemRecommender
 {
     // A "typical" amount of each stat on one item, so stats can be added together on one scale.
-    private static readonly Dictionary<Stat, double> Norm = new()
+    internal static readonly Dictionary<Stat, double> Norm = new()
     {
         [Stat.AttackDamage] = 40, [Stat.AbilityPower] = 80, [Stat.Health] = 350, [Stat.Armor] = 40,
         [Stat.MagicResist] = 40, [Stat.AttackSpeed] = 30, [Stat.CritChance] = 25, [Stat.Lethality] = 15,
@@ -94,7 +94,10 @@ public static class ItemRecommender
         }
     }
 
-    public static ItemAdvice Recommend(LiveGame game, StaticData data, int? myLaneScore = null, ChampionBuild? popular = null)
+    /// <param name="darkSealFull">Dark Seal has full Glory (from <see cref="StackTracker"/>): remind AP champions to upgrade it.</param>
+    /// <param name="surprise">Surprise build mode: follow this plan instead of the usual suggestions.</param>
+    public static ItemAdvice Recommend(LiveGame game, StaticData data, int? myLaneScore = null, ChampionBuild? popular = null,
+        bool darkSealFull = false, SurprisePlan? surprise = null)
     {
         if (game.Me is not { } me || game.ActivePlayer is not { } active) return ItemAdvice.None;
         var reminder = TrinketReminder(game, me, data.Items, out int reminderItem);
@@ -104,6 +107,17 @@ public static class ItemRecommender
 
         var items = data.Items;
         var (style, ap) = Profile(champ, me, items);
+
+        // Full Dark Seal on an AP champion: upgrading to Mejai's keeps the Glory and raises the cap. Takes priority over the trinket.
+        if (darkSealFull && ap && items.Get(StackTracker.DarkSealId) is { } seal && seal.Into.Select(items.Get).FirstOrDefault() is { } mejai)
+        {
+            int cost = items.RemainingCost(mejai, me.Items.Select(i => i.ItemID));
+            reminder = $"Dark Seal is full: upgrade to {mejai.Name} ({cost:N0}g)";
+            reminderItemId = mejai.Id;
+        }
+
+        if (surprise is not null && string.Equals(surprise.ChampionKey, champ.Id, StringComparison.OrdinalIgnoreCase))
+            return SurpriseAdvice(surprise, me, active, items, reminder, reminderItemId);
         var threats = AnalyzeThreats(GoldAnalyzer.Enemies(game), data);
         var weights = Weights(style, ap, myLaneScore);
         bool squishy = style is BuildStyle.Marksman or BuildStyle.Mage or BuildStyle.AdAssassin or BuildStyle.Enchanter;
@@ -228,6 +242,38 @@ public static class ItemRecommender
                 ? $"Buy {step.Item.Name} ({step.Cost:N0}g) → {target.Name}"
                 : $"{remaining - gold:N0}g more for {target.Name}";
         }
+    }
+
+    /// <summary>Surprise mode: the next item of the plan you don't own yet, plus the plan's boots if you have none.</summary>
+    private static ItemAdvice SurpriseAdvice(SurprisePlan plan, Player me, ActivePlayer active, ItemCatalog items, string? reminder, int? reminderItemId)
+    {
+        var owned = me.Items.Select(i => items.Get(i.ItemID)).OfType<ItemInfo>().Where(i => i.IsCompleted).ToList();
+        var ownedNames = owned.Select(i => i.Name).ToHashSet();
+        var ownedGroups = owned.SelectMany(i => i.UniqueGroups).ToHashSet();
+        var ownedIds = me.Items.Select(i => i.ItemID).ToList();
+        Recommendation Rec(ItemInfo item, string reason) => new(item.Id, item.Name, item.TotalCost, items.RemainingCost(item, ownedIds), reason);
+
+        Recommendation? core = null;
+        for (int i = 0; i < plan.Path.Count && core is null; i++)
+            if (items.Get(plan.Path[i]) is { } item && !ownedNames.Contains(item.Name) && !item.UniqueGroups.Overlaps(ownedGroups))
+                core = Rec(item, $"Surprise build: {plan.Title} · item {i + 1} of {plan.Path.Count}");
+
+        var situational = new List<Recommendation>();
+        if (!me.Items.Any(items.IsUpgradedBoots) && items.Get(plan.Boots) is { } boots) situational.Add(Rec(boots, "Surprise build boots"));
+        if (core is null && reminder is null) reminder = $"Surprise build complete: you're a full {plan.Title}!";
+
+        string? buyNow = null;
+        if (core is not null && items.Get(core.ItemId) is { } target)
+        {
+            int gold = (int)active.CurrentGold;
+            buyNow = core.RemainingCost <= gold ? $"Complete {target.Name} now ({core.RemainingCost:N0}g)"
+                : items.Components(target).DistinctBy(c => c.Id).Where(c => !ownedIds.Contains(c.Id))
+                    .Select(c => (Item: c, Cost: items.RemainingCost(c, ownedIds))).Where(x => x.Cost > 0 && x.Cost <= gold)
+                    .OrderByDescending(x => x.Cost).FirstOrDefault() is { Item: not null } step
+                    ? $"Buy {step.Item.Name} ({step.Cost:N0}g) → {target.Name}"
+                    : $"{core.RemainingCost - gold:N0}g more for {target.Name}";
+        }
+        return new ItemAdvice(core, new ValueList<Recommendation>(situational), buyNow, reminder, reminderItemId);
     }
 
     private sealed record Scored(ItemInfo Item, double Base, double Bonus, double AntiHeal, string? Reason)

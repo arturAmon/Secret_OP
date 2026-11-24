@@ -15,17 +15,18 @@ namespace LeagueOverlay;
 /// </summary>
 internal sealed class GoldGraph : FrameworkElement
 {
-    // Team colours: checked for colour-blind separation and contrast on the dark panel (#181B22).
-    public static readonly Color MyTeamColor = Color.FromRgb(0x3D, 0x8E, 0xF0);
-    public static readonly Color EnemyColor = Color.FromRgb(0xF0, 0x60, 0x3C);
+    // Team colours (deeper icon blue / pink): checked for colour-blind separation and contrast on the dark panel (#181B22).
+    public static readonly Color MyTeamColor = Theme.MyTeam;
+    public static readonly Color EnemyColor = Theme.Enemy;
 
     private static readonly Brush MyBrush = Frozen(new SolidColorBrush(MyTeamColor));
     private static readonly Brush EnemyBrush = Frozen(new SolidColorBrush(EnemyColor));
     private static readonly Brush TextBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xE6, 0xE8, 0xEC)));
     private static readonly Brush MutedBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x8B, 0x93, 0xA3)));
-    private static readonly Brush AccentBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xC8, 0x9B, 0x3C)));
+    private static readonly Brush AccentBrush = Theme.YellowBrush;
     private static readonly Brush TooltipBg = Frozen(new SolidColorBrush(Color.FromRgb(0x24, 0x28, 0x32)));
     private static readonly Brush RowBg = Frozen(new SolidColorBrush(Color.FromArgb(0x0C, 0xFF, 0xFF, 0xFF)));
+    private static readonly Pen SoldPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0xE0, 0x5D, 0x5D))), 2) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
     private static readonly Brush FallbackIcon = Frozen(new SolidColorBrush(Color.FromRgb(0x2F, 0x35, 0x42)));
     private static readonly Pen GridPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0x26, 0x2B, 0x35))), 1));
     private static readonly Pen FaintGridPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromArgb(0x10, 0xFF, 0xFF, 0xFF))), 1));
@@ -220,7 +221,7 @@ internal sealed class GoldGraph : FrameworkElement
             {
                 section = p.MyTeam;
                 DrawText(dc, p.MyTeam ? "YOUR TEAM" : "ENEMY TEAM", 10, p.MyTeam ? MyBrush : EnemyBrush, new Point(8, y + 3), bold: true);
-                DrawText(dc, "items bought  ·  level-ups", 10, MutedBrush, new Point(plotLeft, y + 3));
+                DrawText(dc, "items bought (crossed out = sold)  ·  level-ups", 10, MutedBrush, new Point(plotLeft, y + 3));
                 y += SectionHeight;
             }
 
@@ -230,7 +231,7 @@ internal sealed class GoldGraph : FrameworkElement
             // Who: team stripe, champion icon, name.
             dc.DrawRectangle(p.MyTeam ? MyBrush : EnemyBrush, null, new Rect(0, y, 3, RowHeight - 2));
             DrawIcon(dc, Icons?.Champion(p.ChampionKey), new Rect(10, y + 5, 22, 22), p.Name);
-            DrawText(dc, p.IsMe ? $"{p.Name} (you)" : p.Name, 12, p.IsMe ? AccentBrush : TextBrush, new Point(38, y + 8),
+            DrawText(dc, p.IsMe ? $"{p.Name} (you)" : p.Name, 12, p.IsMe ? Theme.BlueBrush : TextBrush, new Point(38, y + 8),
                 bold: p.IsMe, maxWidth: plotLeft - 44);
 
             // Items: icon centred on the purchase time, pushed right if it would cover the previous one.
@@ -241,8 +242,16 @@ internal sealed class GoldGraph : FrameworkElement
                 if (left > plotRight + RightPad - Icon) break;
                 var box = new Rect(left, y + 2, e.Completed ? Icon : Icon - 4, e.Completed ? Icon : Icon - 4);
                 if (!e.Completed) box.Offset(2, 2);
-                DrawIcon(dc, Icons?.Item(e.ItemId), box, e.Name);
-                _hotspots.Add((box, $"{p.Name} bought {e.Name} at {Clock(e.Time)}"));
+                if (e.Sold)
+                {
+                    // Sold: the icon faded and crossed out.
+                    dc.PushOpacity(0.45);
+                    DrawIcon(dc, Icons?.Item(e.ItemId), box, e.Name);
+                    dc.Pop();
+                    dc.DrawLine(SoldPen, box.TopLeft + new Vector(2, 2), box.BottomRight - new Vector(2, 2));
+                }
+                else DrawIcon(dc, Icons?.Item(e.ItemId), box, e.Name);
+                _hotspots.Add((box, $"{p.Name} {(e.Sold ? "sold" : "bought")} {e.Name} at {Clock(e.Time)}"));
                 nextFree = left + Icon + 1;
             }
 

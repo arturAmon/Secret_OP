@@ -18,10 +18,10 @@ internal static class ShareCard
     public const int Width = 1200, Height = 675;
 
     private static readonly Color Bg1 = Color.FromRgb(0x0F, 0x11, 0x15), Bg2 = Color.FromRgb(0x1C, 0x21, 0x2D);
-    private static readonly Brush Text = Frozen(0xE6, 0xE8, 0xEC), Muted = Frozen(0x8B, 0x93, 0xA3), Accent = Frozen(0xC8, 0x9B, 0x3C);
-    private static readonly Brush Gold = Frozen(0xF0, 0xC8, 0x70), Green = Frozen(0x4C, 0xAF, 0x7A), Red = Frozen(0xE0, 0x5D, 0x5D);
+    private static readonly Brush Text = Frozen(0xE6, 0xE8, 0xEC), Muted = Frozen(0x8B, 0x93, 0xA3), Accent = Theme.YellowBrush;
+    private static readonly Brush Gold = Theme.YellowBrush, Green = Frozen(0x4C, 0xAF, 0x7A), Red = Frozen(0xE0, 0x5D, 0x5D);
     private static readonly Brush Card = Frozen(0x1F, 0x23, 0x2C), Line = Frozen(0x2A, 0x2F, 0x3A), IconBg = Frozen(0x2F, 0x35, 0x42);
-    private static readonly Brush Mine = new SolidColorBrush(GoldGraph.MyTeamColor), Theirs = new SolidColorBrush(GoldGraph.EnemyColor);
+    private static readonly Brush Mine = Theme.BlueBrush, Theirs = Theme.PinkBrush; // you and your rival
 
     // The rows that tell the story best; the rest stay in the app.
     private static readonly string[] DuelRows =
@@ -36,7 +36,7 @@ internal static class ShareCard
         {
             Width = Width, Height = Height, Padding = new Thickness(44, 36, 44, 32),
             Background = new LinearGradientBrush(Bg1, Bg2, 35),
-            BorderBrush = Accent, BorderThickness = new Thickness(0, 6, 0, 0),
+            BorderBrush = Theme.IconGradient(), BorderThickness = new Thickness(0, 6, 0, 0),
             Child = Content(g, duel, icons),
         };
         TextOptions.SetTextFormattingMode(root, TextFormattingMode.Ideal);
@@ -102,7 +102,7 @@ internal static class ShareCard
             titles.Children.Add(new Border
             {
                 BorderBrush = Accent, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(8),
-                Background = new SolidColorBrush(Color.FromArgb(0x26, 0xC8, 0x9B, 0x3C)),
+                Background = Theme.Tint(Theme.Yellow, 0x1E),
                 Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(0, 0, 10, 0),
                 Child = new StackPanel
                 {

@@ -6,6 +6,16 @@ public sealed record ChampionInfo(string Id, string Name, IReadOnlyList<string> 
 {
     /// <summary>Numeric champion id ("key" in champion.json), as used by match-v5 (championId).</summary>
     public int Key { get; init; }
+    /// <summary>Base stats from champion.json ("hp", "hpperlevel", "armor", "attackrange", ...).</summary>
+    public IReadOnlyDictionary<string, double> BaseStats { get; init; } = new Dictionary<string, double>();
+
+    /// <summary>A stat at a level, with League's growth curve: base + growth × (L−1) × (0.7025 + 0.0175 × (L−1)).</summary>
+    public double StatAt(string stat, int level)
+    {
+        double b = BaseStats.GetValueOrDefault(stat), g = BaseStats.GetValueOrDefault(stat + "perlevel");
+        int l = Math.Max(1, level) - 1;
+        return b + g * l * (0.7025 + 0.0175 * l);
+    }
     public string PrimaryTag => Tags.Count > 0 ? Tags[0] : "Fighter";
     public bool HasTag(string tag) => Tags.Contains(tag);
 }
@@ -54,6 +64,9 @@ public sealed class StaticData
                 info.GetProperty("defense").GetInt32())
             {
                 Key = c.TryGetProperty("key", out var k) && int.TryParse(k.GetString(), out var key) ? key : 0,
+                BaseStats = c.TryGetProperty("stats", out var st)
+                    ? st.EnumerateObject().Where(x => x.Value.ValueKind == JsonValueKind.Number).ToDictionary(x => x.Name, x => x.Value.GetDouble())
+                    : new Dictionary<string, double>(),
             };
         }
         return new StaticData(version, champions, ItemCatalog.Parse(itemJson));

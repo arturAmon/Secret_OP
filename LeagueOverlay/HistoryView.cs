@@ -19,7 +19,9 @@ internal sealed partial class HistoryView
     private static readonly Brush Muted = Brush(0x8B, 0x93, 0xA3);
     private static readonly Brush Green = Brush(0x4C, 0xAF, 0x7A);
     private static readonly Brush Red = Brush(0xE0, 0x5D, 0x5D);
-    private static readonly Brush Accent = Brush(0xC8, 0x9B, 0x3C);
+    private static readonly Brush Accent = Theme.YellowBrush;
+    private static readonly Brush RivalBrush = Theme.PinkBrush;
+    private static readonly Brush YouBrush = Theme.BlueBrush;
     private static readonly Brush Card = Brush(0x1F, 0x23, 0x2C);
     private static readonly Brush Line = Brush(0x2A, 0x2F, 0x3A);
     private static readonly Brush IconBg = Brush(0x2F, 0x35, 0x42);
@@ -154,7 +156,9 @@ internal sealed partial class HistoryView
 
         // Build vs suggestions (imported games: just the build, the app wasn't there to suggest anything).
         host.Children.Add(Heading(g.Imported ? "Your build" : "Your build vs. the suggestions"));
-        host.Children.Add(CardOf(BuildComparison(g)));
+        var buildCard = new StackPanel { Children = { BuildComparison(g) } };
+        if (SoldRow(g) is { } sold) buildCard.Children.Add(sold);
+        host.Children.Add(CardOf(buildCard));
 
         // Scoreboard.
         host.Children.Add(Heading("Scoreboard"));
@@ -184,13 +188,13 @@ internal sealed partial class HistoryView
             badges.Children.Add(new Border
             {
                 BorderBrush = Accent, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6),
-                Background = new SolidColorBrush(Color.FromArgb(0x22, 0xC8, 0x9B, 0x3C)),
+                Background = Theme.Tint(Theme.Yellow, 0x1A),
                 Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 0, 8, 8),
                 Child = new StackPanel
                 {
                     Children =
                     {
-                        new TextBlock { Text = a.Title, FontWeight = FontWeights.Bold, Foreground = Brush(0xF0, 0xC8, 0x70) },
+                        new TextBlock { Text = a.Title, FontWeight = FontWeights.Bold, Foreground = Theme.YellowBrush },
                         new TextBlock { Text = a.Reason, FontSize = 11, Foreground = Muted },
                     },
                 },
@@ -305,6 +309,27 @@ internal sealed partial class HistoryView
         return panel;
     }
 
+    /// <summary>Items you sold, with when (selling is sometimes the right call, e.g. a full-build swap late in the game).</summary>
+    private FrameworkElement? SoldRow(GameRecord g)
+    {
+        var meKey = g.Timeline.Players.FirstOrDefault(p => p.IsMe)?.Key;
+        var sold = g.Timeline.Items.Where(e => e.PlayerKey == meKey && e.Sold).ToList();
+        if (sold.Count == 0) return null;
+        var row = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
+        row.Children.Add(new TextBlock { Text = "Sold", Width = 48, Foreground = Muted, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
+        foreach (var e in sold)
+        {
+            var icon = ItemIcon(e.ItemId, $"Sold {e.Name} at {Clock(e.Time)}", 26);
+            icon.Opacity = 0.6;
+            row.Children.Add(new StackPanel
+            {
+                Margin = new Thickness(0, 0, 8, 0),
+                Children = { icon, new TextBlock { Text = Clock(e.Time), FontSize = 10, Foreground = Muted, HorizontalAlignment = HorizontalAlignment.Center } },
+            });
+        }
+        return new StackPanel { Children = { new Border { Height = 1, Background = Line, Margin = new Thickness(0, 10, 0, 0) }, row } };
+    }
+
     /// <summary>Finished items in the order you bought them; no comparison, since there were no live suggestions.</summary>
     private FrameworkElement ImportedBuild(GameRecord g)
     {
@@ -388,7 +413,7 @@ internal sealed partial class HistoryView
                 {
                     RivalStar(p),
                     Icon(() => _icons.Champion(p.ChampionKey), 24),
-                    new TextBlock { Text = p.IsMe ? $"{p.Name} (you)" : p.Name, Foreground = p.IsMe ? Accent : Text, FontWeight = p.IsMe ? FontWeights.SemiBold : FontWeights.Normal, TextTrimming = TextTrimming.CharacterEllipsis },
+                    new TextBlock { Text = p.IsMe ? $"{p.Name} (you)" : p.Name, Foreground = p.IsMe ? YouBrush : Text, FontWeight = p.IsMe ? FontWeights.SemiBold : FontWeights.Normal, TextTrimming = TextTrimming.CharacterEllipsis },
                     new TextBlock { Text = $"{p.Level}", Foreground = Muted, ToolTip = "Level" },
                     new TextBlock { Text = $"{p.Kills}/{p.Deaths}/{p.Assists}", ToolTip = "Kills / deaths / assists" },
                     new TextBlock { Text = $"{p.CreepScore} cs", Foreground = Muted },
@@ -414,7 +439,7 @@ internal sealed partial class HistoryView
         bool isRival = RiotIds.Same(p.Key, _rival());
         var star = new TextBlock
         {
-            Text = isRival ? "★" : "☆", FontSize = 15, Foreground = isRival ? Accent : Muted, Cursor = System.Windows.Input.Cursors.Hand,
+            Text = isRival ? "★" : "☆", FontSize = 15, Foreground = isRival ? RivalBrush : Muted, Cursor = System.Windows.Input.Cursors.Hand,
             ToolTip = isRival ? $"{RiotIds.GameName(p.Key)} is your rival" : $"Make {RiotIds.GameName(p.Key)} your rival",
         };
         star.MouseLeftButtonUp += (_, _) => _setRival(p.Key);
@@ -433,7 +458,7 @@ internal sealed partial class HistoryView
         header.Children.Add(tally);
         var title = new TextBlock { FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
         title.Inlines.Add(new Run("Rival duel: you vs "));
-        title.Inlines.Add(new Run(rivalName) { Foreground = Accent });
+        title.Inlines.Add(new Run(rivalName) { Foreground = RivalBrush });
         title.Inlines.Add(new Run($" ({d.Rival.Name}{(d.SameTeam ? ", same team" : ", enemy team")})") { Foreground = Muted, FontWeight = FontWeights.Normal, FontSize = 12 });
         header.Children.Add(title);
 
@@ -446,10 +471,10 @@ internal sealed partial class HistoryView
 
         var meHead = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
         meHead.Children.Add(Icon(() => _icons.Champion(d.Me.ChampionKey), 24));
-        meHead.Children.Add(new TextBlock { Text = "You", Foreground = MyTeam, FontWeight = FontWeights.Bold, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        meHead.Children.Add(new TextBlock { Text = "You", Foreground = YouBrush, FontWeight = FontWeights.Bold, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
         Put(meHead, 0, 0);
         var themHead = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 0, 6) };
-        themHead.Children.Add(new TextBlock { Text = rivalName, Foreground = Accent, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
+        themHead.Children.Add(new TextBlock { Text = rivalName, Foreground = RivalBrush, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
         themHead.Children.Add(Icon(() => _icons.Champion(d.Rival.ChampionKey), 24));
         Put(themHead, 0, 2);
 

@@ -302,3 +302,31 @@ public class HistoryTests
         Assert.Single(h.Snapshot().Gold);
     }
 }
+
+public class SoldItemTests
+{
+    private static LiveGame At(double time, params int[] jinxItems)
+    {
+        var g = Fixtures.Game(Fixtures.P("Jinx", "ORDER", "BOTTOM", 10, jinxItems), 0, Fixtures.P("Zed", "CHAOS", "MIDDLE", 10));
+        g.GameData!.GameTime = time;
+        return g;
+    }
+
+    [Fact]
+    public void Sold_items_are_recorded_but_build_ups_upgrades_and_undos_are_not()
+    {
+        var h = new GameHistory();
+        h.Update(At(10, 3865, 1001), Fixtures.Data);                 // World Atlas + Boots
+        h.Update(At(300, 3866, 1038, 1001), Fixtures.Data);         // Atlas upgrades by itself; B.F. Sword bought
+        h.Update(At(600, 3866, 3031, 3006), Fixtures.Data);         // B.F. into Infinity Edge, Boots into Berserker's
+        h.Update(At(605, 3866, 3031, 3006, 1036), Fixtures.Data);   // Long Sword bought...
+        h.Update(At(610, 3866, 3031, 3006), Fixtures.Data);         // ...and undone 5s later
+        h.Update(At(1500, 3866, 3006), Fixtures.Data);              // Infinity Edge sold
+
+        var events = h.Snapshot().Items.Where(e => e.PlayerKey == "Jinx#ORDER").ToList();
+        var sold = Assert.Single(events, e => e.Sold);
+        Assert.Equal((1500.0, 3031), (sold.Time, sold.ItemId));
+        Assert.True(sold.Completed);
+        Assert.DoesNotContain(events, e => e.ItemId == 1036);      // the undo removed it
+    }
+}

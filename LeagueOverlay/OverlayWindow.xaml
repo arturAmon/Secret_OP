@@ -26,17 +26,20 @@
             <!-- Lane leads: cells are created in code -->
             <UniformGrid x:Name="LaneGrid" Rows="1" Columns="4" Margin="-2,8,-2,0"/>
 
+            <!-- Counters (Dark Seal Glory, Veigar stacks, ...): built in code -->
+            <StackPanel x:Name="StacksPanel" Margin="0,8,0,0" Visibility="Collapsed"/>
+
             <!-- Item suggestions -->
             <StackPanel x:Name="ItemsSection">
                 <Border Height="1" Background="{StaticResource Line}" Margin="0,10,0,8"/>
                 <!-- Role reminder (trinket swap) -->
-                <Border x:Name="ReminderBox" Background="#33C89B3C" BorderBrush="#C89B3C" BorderThickness="1" CornerRadius="5"
+                <Border x:Name="ReminderBox" Background="#33F7FD0C" BorderBrush="#F7FD0C" BorderThickness="1" CornerRadius="5"
                         Padding="8,4" Margin="0,0,0,8" Visibility="Collapsed">
                     <DockPanel>
                         <Border DockPanel.Dock="Left" Width="20" Height="20" CornerRadius="3" ClipToBounds="True" Margin="0,0,8,0" VerticalAlignment="Center">
                             <Image x:Name="ReminderIcon"/>
                         </Border>
-                        <TextBlock x:Name="ReminderText" FontWeight="SemiBold" Foreground="#F0C870" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ReminderText" FontWeight="SemiBold" Foreground="#F7FD0C" TextWrapping="Wrap" VerticalAlignment="Center"/>
                     </DockPanel>
                 </Border>
                 <StackPanel x:Name="CorePanel">
@@ -56,11 +59,11 @@
                     </StackPanel>
                 </DockPanel>
                 <StackPanel x:Name="SituationalPanel" Margin="0,6,0,0"/>
-                <TextBlock x:Name="BuyNowText" Margin="0,6,0,0" FontSize="12" Foreground="#C89B3C" TextWrapping="Wrap"/>
+                <TextBlock x:Name="BuyNowText" Margin="0,6,0,0" FontSize="12" Foreground="#F7FD0C" TextWrapping="Wrap"/>
                 </StackPanel>
             </StackPanel>
 
-            <TextBlock x:Name="HintText" Margin="0,8,0,0" FontSize="11" Foreground="#C89B3C" TextWrapping="Wrap" Visibility="Collapsed"
+            <TextBlock x:Name="HintText" Margin="0,8,0,0" FontSize="11" Foreground="#F7FD0C" TextWrapping="Wrap" Visibility="Collapsed"
                        Text="Move mode: drag to reposition"/>
         </StackPanel>
     </Border>
