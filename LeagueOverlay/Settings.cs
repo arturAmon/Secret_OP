@@ -41,6 +41,12 @@ public sealed class Settings
     /// <summary>Surprise build mode: unexpected builds instead of the usual suggestions.</summary>
     public bool SurpriseMode { get; set; }
 
+    /// <summary>Champion + surprise style combinations not to suggest again ("jinx:ap"), see SurpriseBuilder.BlockKey.</summary>
+    public List<string> SurpriseBlocked { get; set; } = new();
+
+    /// <summary>When applying a rune page and the client has no free page, replace the current page.</summary>
+    public bool RunesReplaceCurrent { get; set; }
+
     /// <summary>Your own Riot ID ("Name#Tag"), for pulling your recent games. Filled in automatically from the first game the app sees.</summary>
     public string? MyRiotId { get; set; }
 

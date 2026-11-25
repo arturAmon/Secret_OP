@@ -28,8 +28,14 @@ public sealed record PostGamePlayer(
     // minute by minute, from the match timeline (index = minute)
     int[]? GoldByMinute = null, int[]? CsByMinute = null, int[]? XpByMinute = null,
     // final inventory in the stored slot layout (item0-item6, role-quest slot), and gold spent on items
-    int[]? Slots = null, int GoldSpent = 0)
+    int[]? Slots = null, int GoldSpent = 0,
+    // rune page (RuneSetup.ToArray) and each tree rune's end-of-game numbers (var1-var3, in page order)
+    int[]? Runes = null, int[]? RuneVars = null)
 {
+    [System.Text.Json.Serialization.JsonIgnore] public RuneSetup? RunePage => RuneSetup.FromArray(Runes);
+    /// <summary>End-of-game number varIndex (1-3) of the rune at position (0-5) in the page.</summary>
+    public int RuneVar(int position, int varIndex) => RuneVars is { Length: 18 } v ? v[position * 3 + varIndex - 1] : 0;
+
     public int Multikills => DoubleKills + TripleKills + QuadraKills + PentaKills;
     public int ObjectiveTakedowns => DragonTakedowns + BaronTakedowns + HeraldTakedowns + VoidgrubKills;
     public int HealAndShield => HealsOnTeammates + ShieldsOnTeammates;
@@ -40,7 +46,7 @@ public sealed record PostGamePlayer(
 public sealed record PostGameStats(string MatchId, List<PostGamePlayer> Players, int Format = 1)
 {
     /// <summary>Bump when Parse learns new fields; saved games with an older format are fetched again.</summary>
-    public const int CurrentFormat = 3; // 3: final inventory (Slots, GoldSpent)
+    public const int CurrentFormat = 4; // 3: final inventory (Slots, GoldSpent); 4: runes
 
     public PostGamePlayer? Find(string riotId) => Players.FirstOrDefault(p => RiotIds.Same(p.RiotId, riotId));
 
@@ -88,6 +94,7 @@ public sealed record PostGameStats(string MatchId, List<PostGamePlayer> Players,
             double C(string name) => ch.ValueKind == JsonValueKind.Object && ch.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : 0;
             string riotId = $"{Str(p, "riotIdGameName")}#{Str(p, "riotIdTagline")}";
             bool B(string name) => p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+            var runes = RuneParse.From(p);
             int pings = p.EnumerateObject().Where(x => x.Name.EndsWith("Pings") && x.Value.ValueKind == JsonValueKind.Number).Sum(x => x.Value.GetInt32());
             players.Add(new PostGamePlayer(
                 riotId, Str(p, "championName"), p.TryGetProperty("win", out var w) && w.GetBoolean(),
@@ -109,7 +116,8 @@ public sealed record PostGameStats(string MatchId, List<PostGamePlayer> Players,
                 DragonTakedowns: (int)C("dragonTakedowns"), BaronTakedowns: (int)C("baronTakedowns"), HeraldTakedowns: (int)C("riftHeraldTakedowns"),
                 VoidgrubKills: (int)C("voidMonsterKill"), TurretTakedowns: I("turretTakedowns"), ObjectivesStolen: I("objectivesStolen"),
                 Pings: pings, DancedWithHerald: C("dancedWithRiftHerald") > 0,
-                Slots: Enumerable.Range(0, 7).Select(i => I($"item{i}")).Append(I("roleBoundItem")).ToArray(), GoldSpent: I("goldSpent")));
+                Slots: Enumerable.Range(0, 7).Select(i => I($"item{i}")).Append(I("roleBoundItem")).ToArray(), GoldSpent: I("goldSpent"),
+                Runes: runes?.Page.ToArray(), RuneVars: runes?.Vars));
         }
         return new PostGameStats(match.GetProperty("metadata").GetProperty("matchId").GetString() ?? "", players, CurrentFormat);
     }

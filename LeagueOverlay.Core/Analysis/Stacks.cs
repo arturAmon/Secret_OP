@@ -30,12 +30,27 @@ public sealed class StackTracker
 
     private double? _sealSince, _mejaiSince;
     private string? _gameKey;
+    private double _lastTime;
+    private FeastCount? _feast;
+
+    /// <summary>Cho'Gath's Feast stacks by source, since minions and small monsters can only give a few.</summary>
+    private sealed class FeastCount
+    {
+        public int Stacks, FromSmall;
+    }
+
+    /// <summary>Feast: max health per stack at R rank 1/2/3 (applies to all stacks), and the stacks minions and non-epic monsters can give.</summary>
+    public static readonly int[] FeastHealthPerStack = [80, 120, 160];
+    public const int FeastSmallUnitCap = 6;
 
     public StackReport Update(LiveGame game, StaticData data)
     {
         if (game.Me is not { } me || game.ActivePlayer is not { } active || game.GameData is not { } gd) return StackReport.None;
-        string gameKey = string.Join("|", game.AllPlayers.Select(p => p.RiotId ?? p.SummonerName));
-        if (gameKey != _gameKey || gd.GameTime < (_sealSince ?? 0)) { _gameKey = gameKey; _sealSince = _mejaiSince = null; }
+        // A new game: another champion, or the game clock went back. (Not the player list: it can fill in late while loading.)
+        string gameKey = me.ChampionKey;
+        if (gameKey != _gameKey || gd.GameTime < _lastTime - 5) { _gameKey = gameKey; _sealSince = _mejaiSince = null; _feast = null; }
+        double previousTime = _lastTime;
+        _lastTime = gd.GameTime;
 
         var lines = new List<StackInfo>();
         bool ownsSeal = me.Items.Any(i => i.ItemID == DarkSealId), ownsMejai = me.Items.Any(i => i.ItemID == MejaiId);
@@ -66,9 +81,13 @@ public sealed class StackTracker
                 ownsMejai ? MejaiId : DarkSealId));
         }
 
-        if (active.ChampionStats is { } stats && data.Champion(me.ChampionKey) is { } champ &&
-            ChampionStack(champ, me, stats, active.FullRunes, data.Items, gloryAp) is { } champLine)
-            lines.Add(champLine);
+        if (active.ChampionStats is { } stats && data.Champion(me.ChampionKey) is { } champ)
+        {
+            var champLine = champ.Id == "Chogath"
+                ? Feast(game, me, champ, stats, active, data.Items, previousTime)
+                : ChampionStack(champ, me, stats, active.FullRunes, data.Items, gloryAp);
+            if (champLine is not null) lines.Add(champLine);
+        }
 
         return new StackReport(new ValueList<StackInfo>(lines), sealFull);
     }
@@ -99,6 +118,50 @@ public sealed class StackTracker
             if (IsMe(e.VictimName)) yield return (e.EventTime, true);
             else if (IsMe(e.KillerName) || e.Assisters.Any(IsMe)) yield return (e.EventTime, false);
         }
+    }
+
+    /// <summary>
+    /// Cho'Gath's Feast: stacks = bonus health / health per stack at the current R rank. Each new stack is put down to a
+    /// champion or epic monster when you got such a kill since the last read, otherwise to a minion or small monster
+    /// (those only count for the first 6). Stacks already there when the app started are assumed to be small ones first.
+    /// </summary>
+    private StackInfo? Feast(LiveGame game, Player me, ChampionInfo champ, ChampionStats stats, ActivePlayer active, ItemCatalog items, double since)
+    {
+        int rank = active.Abilities?.R?.AbilityLevel ?? 0;
+        const string meaning = "Champions and epic monsters (dragons, Rift Herald, Baron, Voidgrubs) always give a stack; minions and other monsters only until 6.";
+        if (rank <= 0) return new StackInfo("Feast", "No stacks yet", "learn Feast (R) at level 6", meaning);
+        int level = Math.Max(1, me.Level);
+        int Shards(int id) => active.FullRunes?.StatRunes.Count(r => r.Id == id) ?? 0;
+        double shardHealth = Shards(HealthShard) * 65 + Shards(HealthScalingShard) * (10 + 170.0 * (level - 1) / 17);
+        double bonus = Math.Max(0, stats.MaxHealth - champ.StatAt("hp", level) - items.StatTotal(me, Stat.Health) - shardHealth);
+        int stacks = (int)Math.Round(bonus / FeastHealthPerStack[Math.Min(rank, 3) - 1]);
+
+        if (_feast is null)
+        {
+            _feast = new FeastCount { Stacks = stacks, FromSmall = Math.Min(stacks, FeastSmallUnitCap) };
+        }
+        else if (stacks > _feast.Stacks)
+        {
+            int added = stacks - _feast.Stacks;
+            int bigKills = BigKills(game, me, since - 3);
+            int small = Math.Max(0, added - bigKills);
+            _feast.FromSmall = Math.Min(FeastSmallUnitCap, _feast.FromSmall + small);
+            _feast.Stacks = stacks;
+        }
+        int left = FeastSmallUnitCap - _feast.FromSmall;
+        return new StackInfo("Feast", $"{_feast.Stacks} stacks", $"+{bonus:N0} max health",
+            $"Minions & monsters: {_feast.FromSmall} of {FeastSmallUnitCap} used, " +
+            (left > 0 ? $"{left} left. " : "none left: only champions and epic monsters now. ") + meaning);
+    }
+
+    /// <summary>Your champion kills and epic monster kills since a game time.</summary>
+    private static int BigKills(LiveGame game, Player me, double since)
+    {
+        var names = new[] { me.RiotIdGameName, me.SummonerName, me.RiotId }
+            .Where(n => !string.IsNullOrEmpty(n)).Select(n => n!.Split('#')[0].Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return (game.Events?.Events ?? []).Count(e => e.EventTime > since &&
+            e.EventName is "ChampionKill" or "DragonKill" or "HeraldKill" or "BaronKill" or "HordeKill" &&
+            e.KillerName is { } k && names.Contains(k.Split('#')[0].Trim()));
     }
 
     /// <summary>The champion's own stacking mechanic, when it shows up in a stat the client reports.</summary>

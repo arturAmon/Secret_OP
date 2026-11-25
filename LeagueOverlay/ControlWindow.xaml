@@ -64,6 +64,23 @@
             </StackPanel>
         </Border>
 
+        <!-- Champion select: suggested runes, apply to the client -->
+        <Border x:Name="ChampSelectCard" Background="{StaticResource Panel}" CornerRadius="8" Padding="14,10" Margin="0,10,0,0" Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock Text="Champion select" FontWeight="SemiBold"/>
+                <TextBlock x:Name="ChampSelectText" Margin="0,4,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+                <ContentControl x:Name="ChampSelectRunes" Margin="0,8,0,0"/>
+                <TextBlock x:Name="ChampSelectStarterLabel" Text="Starting items" Margin="0,8,0,4" FontSize="11" Foreground="{StaticResource MutedBrush}"/>
+                <WrapPanel x:Name="ChampSelectStarter"/>
+                <Button x:Name="ApplyRunesButton" Content="Apply rune page" Style="{StaticResource AccentButton}" HorizontalAlignment="Left" Margin="0,10,0,0"
+                        Click="ApplyRunes_Click" ToolTip="Create this rune page in the League client (named League Overlay) and select it"/>
+                <CheckBox x:Name="ReplacePageBox" Margin="0,8,0,0" Foreground="{StaticResource TextBrush}" FontSize="12"
+                          Content="If no rune page is free, replace the current one" Checked="ReplacePage_Changed" Unchecked="ReplacePage_Changed"/>
+                <TextBlock x:Name="ApplyRunesStatus" Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+                <TextBlock x:Name="ItemSetStatus" Margin="0,4,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
         <!-- Rival -->
         <Border Background="{StaticResource Panel}" CornerRadius="8" Padding="14,10" Margin="0,10,0,0">
             <StackPanel>
@@ -84,8 +101,16 @@
                 <TextBlock x:Name="SurpriseText" Margin="0,4,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
                            Text="Off. When on, every game gets an unexpected build your champion still scales with (AP Ezreal, healing Senna...)."/>
                 <WrapPanel x:Name="SurpriseItems" Margin="0,6,0,0"/>
-                <Button x:Name="RerollButton" Content="Reroll" HorizontalAlignment="Left" Margin="0,6,0,0" Click="Reroll_Click" Visibility="Collapsed"
-                        ToolTip="Pick a different surprise build for this game"/>
+                <ContentControl x:Name="SurpriseRunes" Margin="0,6,0,0"/>
+                <StackPanel x:Name="SurpriseButtons" Orientation="Horizontal" Margin="0,6,0,0" Visibility="Collapsed">
+                    <Button x:Name="RerollButton" Content="Reroll" Click="Reroll_Click" ToolTip="Pick a different surprise build for this game"/>
+                    <Button x:Name="BlockButton" Content="Don't suggest this again" Margin="6,0,0,0" Click="Block_Click"
+                            ToolTip="Never suggest this style on this champion again (and pick another one now)"/>
+                </StackPanel>
+                <DockPanel x:Name="BlockedRow" Margin="0,8,0,0" LastChildFill="True" Visibility="Collapsed">
+                    <Button DockPanel.Dock="Right" Content="Allow all again" Click="UnblockAll_Click" Padding="8,2" FontSize="11"/>
+                    <TextBlock x:Name="BlockedText" FontSize="11" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                </DockPanel>
             </StackPanel>
         </Border>
 

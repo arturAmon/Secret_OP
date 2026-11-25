@@ -6,13 +6,24 @@ using LeagueOverlay.Core.Live;
 
 namespace LeagueOverlay.Core.Builds;
 
-/// <summary>One player's build from one ranked game: finished items in the order they were bought, plus their boots.</summary>
+/// <summary>
+/// One player's build from one ranked game: finished items in the order they were bought, plus their boots.
+/// Games collected since runes were added also have the rune page (<see cref="RuneSetup.ToArray"/>), each rune's
+/// end-of-game numbers (3 per tree rune) and the game length; older ones have null / 0 there.
+/// </summary>
 public sealed record BuildRecord(
     [property: JsonPropertyName("c")] int Champion,
     [property: JsonPropertyName("p")] string Position,
     [property: JsonPropertyName("w")] bool Win,
     [property: JsonPropertyName("i")] int[] Items,
-    [property: JsonPropertyName("b")] int Boots);
+    [property: JsonPropertyName("b")] int Boots,
+    [property: JsonPropertyName("r"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int[]? Runes = null,
+    [property: JsonPropertyName("v"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int[]? RuneVars = null,
+    [property: JsonPropertyName("d"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] int Duration = 0,
+    [property: JsonPropertyName("s"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int[]? Starter = null)
+{
+    public bool HasRunes => Runes is { Length: 11 };
+}
 
 /// <summary>Turns a match-v5 match + timeline into builds.</summary>
 public static class MatchParser
@@ -34,6 +45,8 @@ public static class MatchParser
     {
         // Purchase order from the timeline, with undos taken back out.
         var bought = new Dictionary<int, List<int>>();
+        var starters = new Dictionary<int, List<int>>(); // bought in the first minute, trinkets aside
+        const long StarterMs = 60_000;
         foreach (var frame in timeline.GetProperty("info").GetProperty("frames").EnumerateArray())
         foreach (var e in frame.GetProperty("events").EnumerateArray())
         {
@@ -42,11 +55,23 @@ public static class MatchParser
             int pid = e.TryGetProperty("participantId", out var p) ? p.GetInt32() : 0;
             if (pid is < 1 or > 10) continue;
             var list = bought.TryGetValue(pid, out var l) ? l : bought[pid] = new List<int>();
-            if (type == "ITEM_PURCHASED") list.Add(e.GetProperty("itemId").GetInt32());
-            else if (e.TryGetProperty("beforeId", out var before) && list.LastIndexOf(before.GetInt32()) is >= 0 and var idx) list.RemoveAt(idx);
+            var start = starters.TryGetValue(pid, out var st) ? st : starters[pid] = new List<int>();
+            bool early = e.TryGetProperty("timestamp", out var ts) && ts.GetInt64() < StarterMs;
+            if (type == "ITEM_PURCHASED")
+            {
+                int id = e.GetProperty("itemId").GetInt32();
+                list.Add(id);
+                if (early && items.Get(id)?.Tags.Contains("Trinket") != true) start.Add(id);
+            }
+            else if (e.TryGetProperty("beforeId", out var before))
+            {
+                if (list.LastIndexOf(before.GetInt32()) is >= 0 and var idx) list.RemoveAt(idx);
+                if (early && start.LastIndexOf(before.GetInt32()) is >= 0 and var sidx) start.RemoveAt(sidx);
+            }
         }
 
         var result = new List<BuildRecord>();
+        int duration = match.GetProperty("info").TryGetProperty("gameDuration", out var gd) ? (int)gd.GetInt64() : 0;
         foreach (var participant in match.GetProperty("info").GetProperty("participants").EnumerateArray())
         {
             int pid = participant.GetProperty("participantId").GetInt32();
@@ -61,12 +86,17 @@ public static class MatchParser
             if (boots == 0 && participant.TryGetProperty("roleBoundItem", out var rb) && TierTwoBoots(rb.GetInt32(), items) is { } roleBoots)
                 boots = roleBoots; // bot lane: boots live in the role quest slot
 
+            var runes = RuneParse.From(participant);
             result.Add(new BuildRecord(
                 participant.GetProperty("championId").GetInt32(),
                 participant.TryGetProperty("teamPosition", out var pos) ? pos.GetString() ?? "" : "",
                 participant.GetProperty("win").GetBoolean(),
                 core.ToArray(),
-                boots));
+                boots,
+                runes?.Page.ToArray(),
+                runes?.Vars,
+                duration,
+                starters.GetValueOrDefault(pid) is { Count: > 0 } starter ? starter.Order().ToArray() : null));
         }
         return result;
     }
@@ -104,12 +134,17 @@ public sealed class BuildStore
     public string FilePath { get; }
     public int Version { get; private set; }
     public int MatchCount { get { lock (_lock) return _file.Matches.Count; } }
+    /// <summary>Games whose builds include rune pages (games collected before runes were added don't).</summary>
+    public int RuneMatchCount { get { lock (_lock) return _runeMatches; } }
+    private int _runeMatches;
 
     private BuildStore(string path, FileShape file)
     {
         FilePath = path;
         _file = file;
         _matchSet = file.Matches.ToHashSet();
+        int per = file.Matches.Count == 0 ? 10 : Math.Max(1, file.Builds.Count / file.Matches.Count);
+        _runeMatches = file.Builds.Count(b => b.HasRunes) / per;
     }
 
     public static string DefaultRoot =>
@@ -133,7 +168,9 @@ public sealed class BuildStore
         {
             if (!_matchSet.Add(matchId)) return;
             _file.Matches.Add(matchId);
-            _file.Builds.AddRange(builds);
+            var list = builds.ToList();
+            _file.Builds.AddRange(list);
+            if (list.Any(b => b.HasRunes)) _runeMatches++;
             _snapshot = null;
             Version++;
         }
@@ -204,6 +241,10 @@ public sealed record ChampionBuild(
 {
     public double Share(int itemId) => ItemShare.GetValueOrDefault(itemId);
 
+    /// <summary>Most common starting items (sorted, an entry per copy); empty when the games don't record them.</summary>
+    public IReadOnlyList<int> Starter { get; init; } = [];
+    public double StarterShare { get; init; }
+
     public static ChampionBuild? From(IReadOnlyList<BuildRecord> builds, string? position, string patch)
     {
         if (builds.Count == 0) return null;
@@ -226,7 +267,14 @@ public sealed record ChampionBuild(
             .ToDictionary(g => g.Key, g => g.Count() / (double)builds.Count);
         var bootsShare = builds.Where(b => b.Boots != 0).GroupBy(b => b.Boots)
             .ToDictionary(g => g.Key, g => g.Count() / (double)builds.Count);
-        return new ChampionBuild(builds.Count, builds.Count(b => b.Win) / (double)builds.Count, path, pathShare, itemShare, bootsShare, position, patch);
+        var starts = builds.Where(b => b.Starter is { Length: > 0 }).Select(b => b.Starter!).ToList();
+        // Only from enough games that recorded it (older collected games don't).
+        var topStart = starts.Count < 10 ? null : starts.GroupBy(s => string.Join(",", s)).OrderByDescending(g => g.Count()).ThenBy(g => g.Key).FirstOrDefault();
+        return new ChampionBuild(builds.Count, builds.Count(b => b.Win) / (double)builds.Count, path, pathShare, itemShare, bootsShare, position, patch)
+        {
+            Starter = topStart?.First() ?? [],
+            StarterShare = topStart is null ? 0 : topStart.Count() / (double)starts.Count,
+        };
     }
 }
 
@@ -266,10 +314,45 @@ public sealed class BuildLibrary
         }
     }
 
-    private ChampionBuild? Compute(int champ, string? position)
+    private readonly Dictionary<(int, string?), (int Version, RunePage? Page)> _runeCache = new();
+    private (int Version, RuneBenchmarks Bench)? _bench;
+
+    /// <summary>The most common rune page for a champion in a role, falling back the same way as <see cref="For"/>.</summary>
+    public RunePage? Runes(int championKey, string? position)
     {
-        var current = Current.Builds.Where(b => b.Champion == champ).ToList();
-        var both = Previous is null ? current : current.Concat(Previous.Builds.Where(b => b.Champion == champ)).ToList();
+        lock (_lock)
+        {
+            int version = Version;
+            if (_runeCache.TryGetValue((championKey, position), out var hit) && hit.Version == version) return hit.Page;
+            string? role = string.IsNullOrEmpty(position) ? null : position.ToUpperInvariant();
+            var page = Pick(championKey, role, b => b.HasRunes, RunePage.From);
+            _runeCache[(championKey, position)] = (version, page);
+            return page;
+        }
+    }
+
+    /// <summary>Typical end-of-game rune numbers from every collected game (both patches).</summary>
+    public RuneBenchmarks Benchmarks
+    {
+        get
+        {
+            lock (_lock)
+            {
+                int version = Version;
+                if (_bench is { } b && b.Version == version) return b.Bench;
+                var bench = RuneBenchmarks.From(Previous is null ? Current.Builds : Current.Builds.Concat(Previous.Builds));
+                _bench = (version, bench);
+                return bench;
+            }
+        }
+    }
+
+    private ChampionBuild? Compute(int champ, string? position) => Pick(champ, position, _ => true, ChampionBuild.From);
+
+    private T? Pick<T>(int champ, string? position, Func<BuildRecord, bool> usable, Func<IReadOnlyList<BuildRecord>, string?, string, T?> make) where T : class
+    {
+        var current = Current.Builds.Where(b => b.Champion == champ && usable(b)).ToList();
+        var both = Previous is null ? current : current.Concat(Previous.Builds.Where(b => b.Champion == champ && usable(b))).ToList();
         string bothPatch = Previous is null ? Current.Patch : $"{Current.Patch} + {Previous.Patch}";
 
         // The role matters more than the patch (support Ashe builds nothing like ADC Ashe), so try both patches
@@ -280,11 +363,11 @@ public sealed class BuildLibrary
             foreach (var (pool, patch) in pools)
             {
                 var inRole = pool.Where(b => b.Position == position).ToList();
-                if (inRole.Count >= MinGames) return ChampionBuild.From(inRole, position, patch);
+                if (inRole.Count >= MinGames) return make(inRole, position, patch);
             }
         }
         foreach (var (pool, patch) in pools)
-            if (pool.Count >= MinGames) return ChampionBuild.From(pool, null, patch);
+            if (pool.Count >= MinGames) return make(pool, null, patch);
         return null;
     }
 }

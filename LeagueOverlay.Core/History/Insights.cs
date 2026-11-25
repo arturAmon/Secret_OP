@@ -76,6 +76,9 @@ public static class Awards
         if (won && worstDeficit >= 3000) list.Add(new("Comeback Kid", $"Won after being {worstDeficit / 1000.0:0.0}k gold behind", 150));
         else if (won && finalLead >= 10000) list.Add(new("Steamroller", $"Won with a {finalLead / 1000.0:0.0}k gold lead", 100));
         if (won) list.Add(new("Nexus Demolition Crew", "Won the game", 50));
+        if (g.Surprise is { } surprise)
+            list.Add(won ? new("Agent of Chaos", $"Won with a surprise build ({surprise.Title})", 120)
+                         : new("Fearless Experimenter", $"Played a surprise build ({surprise.Title})", 40));
         if (g.Suggested >= 3 && g.Followed == g.Suggested) list.Add(new("Good Listener", $"Followed all {g.Suggested} item suggestions", 40));
 
         // From Riot's match history, once it's been added to the game.

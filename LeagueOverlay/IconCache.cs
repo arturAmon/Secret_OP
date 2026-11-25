@@ -31,6 +31,9 @@ public sealed class IconCache
 
     public ImageSource? Item(int id) => Get($"item/{id}.png");
     public ImageSource? Champion(string championKey) => Get($"champion/{championKey}.png");
+    /// <summary>A rune or stat shard icon; the path is the "icon" from the rune data (not versioned by patch).</summary>
+    public ImageSource? Rune(string iconPath) => iconPath.Length == 0 ? null : Get(RunePrefix + iconPath);
+    private const string RunePrefix = "rune:";
 
     private ImageSource? Get(string relative)
     {
@@ -47,10 +50,14 @@ public sealed class IconCache
         {
             image = await Task.Run(async () =>
             {
-                string path = Path.Combine(DataDragon.DefaultCacheRoot, version, "img", relative.Replace('/', Path.DirectorySeparatorChar));
+                bool rune = relative.StartsWith(RunePrefix);
+                string file = rune ? "runes/" + relative[RunePrefix.Length..] : relative;
+                if (file.Contains("..")) return null;
+                string path = Path.Combine(DataDragon.DefaultCacheRoot, version, "img", file.Replace('/', Path.DirectorySeparatorChar));
+                string url = rune ? $"https://ddragon.leagueoflegends.com/cdn/img/{relative[RunePrefix.Length..]}" : $"https://ddragon.leagueoflegends.com/cdn/{version}/img/{relative}";
                 if (!File.Exists(path))
                 {
-                    using var response = await Http.GetAsync($"https://ddragon.leagueoflegends.com/cdn/{version}/img/{relative}");
+                    using var response = await Http.GetAsync(url);
                     if (!response.IsSuccessStatusCode) return null;
                     Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                     await File.WriteAllBytesAsync(path, await response.Content.ReadAsByteArrayAsync());
@@ -58,7 +65,7 @@ public sealed class IconCache
                 var bitmap = new BitmapImage();
                 bitmap.BeginInit();
                 bitmap.CacheOption = BitmapCacheOption.OnLoad; // read now so the file isn't kept open
-                bitmap.DecodePixelWidth = 40;                  // drawn at ~20px; keeps memory small
+                bitmap.DecodePixelWidth = rune ? 64 : 40;      // drawn at ~20px (keystones bigger); keeps memory small
                 bitmap.UriSource = new Uri(path);
                 bitmap.EndInit();
                 bitmap.Freeze();

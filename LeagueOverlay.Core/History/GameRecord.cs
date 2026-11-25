@@ -58,6 +58,15 @@ public sealed record BuildStep(
     int? SuggestedId, string? SuggestedName, string? SuggestedReason,
     int[] SituationalIds, string[] SituationalNames, StepMatch Match);
 
+/// <summary>The surprise build a game was played with: style, items in order, boots and the rune page (RuneSetup.ToArray) if there was one.</summary>
+public sealed record SurpriseRecord(string Title, string Theme, List<int> Path, int Boots, int[]? Runes)
+{
+    public static SurpriseRecord From(SurprisePlan plan) =>
+        new(plan.Title, plan.Theme.Key, plan.Path.ToList(), plan.Boots, plan.Runes?.ToArray());
+
+    [JsonIgnore] public RuneSetup? RunePage => RuneSetup.FromArray(Runes);
+}
+
 /// <summary>Everything kept about one finished game, saved as JSON in %LOCALAPPDATA%\LeagueOverlay\games.</summary>
 public sealed record GameRecord(
     DateTime EndedAt,
@@ -84,7 +93,9 @@ public sealed record GameRecord(
     /// <summary>Final numbers from Riot's match history, added a few minutes after the game when there's an API key.</summary>
     PostGameStats? PostGame = null,
     /// <summary>Taken from Riot's match history rather than recorded live: no suggestions, and the graph shows gold earned.</summary>
-    bool Imported = false)
+    bool Imported = false,
+    /// <summary>The surprise build this game was played with (surprise mode on), else null.</summary>
+    SurpriseRecord? Surprise = null)
 {
     public RecordedPlayer? Me => Players.FirstOrDefault(p => p.IsMe);
     public int Followed => Build.Count(s => s.Match is StepMatch.Followed or StepMatch.Situational);

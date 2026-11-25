@@ -7,9 +7,11 @@ namespace LeagueOverlay.Core.Builds;
 
 public enum CrawlState { NoKey, Starting, Collecting, Paused, Complete, KeyRejected, Offline }
 
-public sealed record CrawlStatus(CrawlState State, string Region, string Patch, int Games, int Target)
+public sealed record CrawlStatus(CrawlState State, string Region, string Patch, int Games, int Target, int RuneGames = 0)
 {
     public static CrawlStatus NoKey => new(CrawlState.NoKey, "", "", 0, BuildCrawler.TargetGames);
+    /// <summary>Enough item builds, still collecting games with rune pages (stores from before runes were added).</summary>
+    public bool CollectingRunes => Games >= Target && RuneGames < BuildCrawler.RuneTargetGames;
 }
 
 /// <summary>
@@ -21,6 +23,10 @@ public sealed class BuildCrawler
 {
     /// <summary>Games per patch to collect. At a development key's rate this takes roughly two hours.</summary>
     public const int TargetGames = 3000;
+    /// <summary>Games with rune pages per patch. Patches collected before runes were added keep collecting until they have these.</summary>
+    public const int RuneTargetGames = 1500;
+
+    public static bool IsComplete(BuildStore store) => store.MatchCount >= TargetGames && store.RuneMatchCount >= RuneTargetGames;
     private const int SaveEvery = 10;
     private static readonly string[] Ladders = ["challengerleagues", "grandmasterleagues"];
 
@@ -42,7 +48,7 @@ public sealed class BuildCrawler
 
     private BuildStore Current => _library.Current;
 
-    public CrawlStatus Status => new(_state, _client.Region.Platform, Current.Patch, Current.MatchCount, TargetGames);
+    public CrawlStatus Status => new(_state, _client.Region.Platform, Current.Patch, Current.MatchCount, TargetGames, Current.RuneMatchCount);
 
     private void Report(CrawlState state)
     {
@@ -52,7 +58,7 @@ public sealed class BuildCrawler
 
     public async Task RunAsync(CancellationToken ct)
     {
-        Report(Current.MatchCount >= TargetGames ? CrawlState.Complete : CrawlState.Starting);
+        Report(IsComplete(Current) ? CrawlState.Complete : CrawlState.Starting);
         if (_state == CrawlState.Complete) return;
         try
         {
@@ -96,7 +102,7 @@ public sealed class BuildCrawler
 
         foreach (var puuid in players)
         {
-            if (Current.MatchCount >= TargetGames) return true;
+            if (IsComplete(Current)) return true;
             await WhileInGameAsync(ct);
             List<string> ids;
             using (var doc = await _client.MatchIdsAsync(puuid, since, 20, ct))
@@ -111,7 +117,7 @@ public sealed class BuildCrawler
                     using var match = await _client.MatchAsync(id, ct);
                     var patch = MatchParser.UsablePatch(match.RootElement);
                     var store = patch == Current.Patch ? Current
-                        : _library.Previous is { } prev && patch == prev.Patch && prev.MatchCount < TargetGames ? prev
+                        : _library.Previous is { } prev && patch == prev.Patch && !IsComplete(prev) ? prev
                         : null;
                     if (store is null) { notUsable.Add(id); continue; }
 
@@ -128,10 +134,10 @@ public sealed class BuildCrawler
 
                 if (++unsaved >= SaveEvery) { SaveAll(); unsaved = 0; }
                 Report(CrawlState.Collecting);
-                if (Current.MatchCount >= TargetGames) return true;
+                if (IsComplete(Current)) return true;
             }
         }
-        return Current.MatchCount >= TargetGames;
+        return IsComplete(Current);
     }
 
     /// <summary>Never compete with the game for bandwidth: wait while a game is running.</summary>

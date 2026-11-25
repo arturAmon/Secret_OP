@@ -28,13 +28,18 @@ public sealed class StaticData
     /// <summary>Keyed by Data Dragon id ("MonkeyKing"), case-insensitive.</summary>
     public IReadOnlyDictionary<string, ChampionInfo> Champions { get; }
     public ItemCatalog Items { get; }
+    /// <summary>Rune trees, shards and end-of-game rune stat labels (empty if they couldn't be loaded).</summary>
+    public RuneCatalog Runes { get; }
+    /// <summary>How each champion's abilities scale (Meraki Analytics), for surprise mode; empty if it couldn't be loaded.</summary>
+    public ChampionKits Kits { get; init; } = ChampionKits.Empty;
     public bool IsLoaded => Items.ById.Count > 0;
 
-    public StaticData(string version, IReadOnlyDictionary<string, ChampionInfo> champions, ItemCatalog items)
+    public StaticData(string version, IReadOnlyDictionary<string, ChampionInfo> champions, ItemCatalog items, RuneCatalog? runes = null)
     {
         Version = version;
         Champions = champions;
         Items = items;
+        Runes = runes ?? RuneCatalog.Empty;
     }
 
     public ChampionInfo? Champion(string key) => Champions.TryGetValue(key, out var c) ? c : null;
@@ -47,7 +52,7 @@ public sealed class StaticData
     public string Patch => PatchOf(Version);
     public static string PatchOf(string version) => string.Join('.', version.Split('.').Take(2));
 
-    public static StaticData Parse(string version, string championJson, string itemJson)
+    public static StaticData Parse(string version, string championJson, string itemJson, RuneCatalog? runes = null)
     {
         using var doc = JsonDocument.Parse(championJson);
         var champions = new Dictionary<string, ChampionInfo>(StringComparer.OrdinalIgnoreCase);
@@ -69,7 +74,7 @@ public sealed class StaticData
                     : new Dictionary<string, double>(),
             };
         }
-        return new StaticData(version, champions, ItemCatalog.Parse(itemJson));
+        return new StaticData(version, champions, ItemCatalog.Parse(itemJson), runes);
     }
 }
 
@@ -102,7 +107,56 @@ public static class DataDragon
         Directory.CreateDirectory(dir);
         var champions = await CachedAsync(http, dir, "champion.json", $"{Cdn}/cdn/{version}/data/en_US/champion.json", ct);
         var items = await CachedAsync(http, dir, "item.json", $"{Cdn}/cdn/{version}/data/en_US/item.json", ct);
-        return StaticData.Parse(version, champions, items);
+        var data = StaticData.Parse(version, champions, items, await LoadRunesAsync(http, dir, version, ct));
+        return new StaticData(data.Version, data.Champions, data.Items, data.Runes) { Kits = await LoadKitsAsync(http, dir, ct) };
+    }
+
+    public const string MerakiChampionsUrl = "https://cdn.merakianalytics.com/riot/lol/resources/latest/en-US/champions.json";
+
+    /// <summary>
+    /// Ability scaling per champion from Meraki Analytics (~13 MB), boiled down to a few KB and cached per patch.
+    /// Optional: without it, surprise mode falls back to Data Dragon's rough ratings.
+    /// </summary>
+    private static async Task<ChampionKits> LoadKitsAsync(HttpClient http, string dir, CancellationToken ct)
+    {
+        string path = Path.Combine(dir, "kits.json");
+        try
+        {
+            if (File.Exists(path)) return ChampionKits.FromCacheJson(await File.ReadAllTextAsync(path, ct));
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromMinutes(2));
+            await using var stream = await http.GetStreamAsync(MerakiChampionsUrl, cts.Token);
+            var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, cts.Token);
+            buffer.Position = 0;
+            var kits = ChampionKits.ParseMeraki(buffer);
+            if (kits.Count > 100)
+            {
+                await File.WriteAllTextAsync(path + ".tmp", kits.ToCacheJson(), ct);
+                File.Move(path + ".tmp", path, overwrite: true);
+            }
+            return kits;
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException or JsonException && !ct.IsCancellationRequested)
+        {
+            return ChampionKits.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Rune trees (Data Dragon) plus the labels of the end-of-game rune numbers (CommunityDragon). Either can fail without
+    /// stopping the app: no runes means no rune suggestions, no labels means rune numbers aren't analysed.
+    /// </summary>
+    private static async Task<RuneCatalog> LoadRunesAsync(HttpClient http, string dir, string version, CancellationToken ct)
+    {
+        string? runes = null, perks = null;
+        try { runes = await CachedAsync(http, dir, "runesReforged.json", $"{Cdn}/cdn/{version}/data/en_US/runesReforged.json", ct); }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException && !ct.IsCancellationRequested) { }
+        if (runes is null) return RuneCatalog.Empty;
+        try { perks = await CachedAsync(http, dir, "perks.json", "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/perks.json", ct); }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException && !ct.IsCancellationRequested) { }
+        try { return RuneCatalog.Parse(runes, perks); }
+        catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException) { return RuneCatalog.Empty; }
     }
 
     private static async Task<string> CachedAsync(HttpClient http, string dir, string file, string url, CancellationToken ct)

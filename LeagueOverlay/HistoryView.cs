@@ -36,6 +36,13 @@ internal sealed partial class HistoryView
     private readonly Func<GameRecord, RivalDuel?, bool, string?> _share; // (game, duel, save to file? else copy) -> message
     private readonly List<(Image Image, Func<ImageSource?> Get)> _pendingIcons = new();
 
+    /// <summary>Static data (champions, rune trees) and typical rune numbers, for the Runes section of the match report.</summary>
+    public Func<LeagueOverlay.Core.Data.StaticData>? Data { get; init; }
+    public Func<LeagueOverlay.Core.Builds.RuneBenchmarks?>? Benchmarks { get; init; }
+    /// <summary>"Don't suggest this again" for a surprise game's champion + style, and whether it's already blocked.</summary>
+    public Action<string, string>? BlockSurprise { get; init; }
+    public Func<string, string, bool>? IsSurpriseBlocked { get; init; }
+
     public HistoryView(IconCache icons, Func<int, string?> itemName, Func<LeagueOverlay.Core.Data.ItemCatalog> catalog, Func<string?> rival, Action<string> setRival, Func<GameRecord, RivalDuel?, bool, string?> share)
     {
         _icons = icons;
@@ -55,6 +62,7 @@ internal sealed partial class HistoryView
         var title = new TextBlock { FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
         title.Inlines.Add(new Run(g.ChampionName));
         if (RoleName(g.Position) is { } role) title.Inlines.Add(new Run($" · {role}") { Foreground = Muted, FontWeight = FontWeights.Normal });
+        if (g.Surprise is not null) title.Inlines.Add(new Run("  surprise") { Foreground = Theme.PinkBrush, FontSize = 11, FontWeight = FontWeights.Normal });
 
         var sub = new TextBlock { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis };
         sub.Inlines.Add(new Run(ResultText(g.Result)) { Foreground = ResultBrush(g.Result), FontWeight = FontWeights.SemiBold });
@@ -74,6 +82,18 @@ internal sealed partial class HistoryView
         panel.Children.Add(icon);
         panel.Children.Add(text);
         return panel;
+    }
+
+    /// <summary>
+    /// Control wards you bought: Riot's number when match history has the game, else the purchases the app saw
+    /// (a lower bound, since buying more of a stack you hold isn't always visible live). Null when neither is known.
+    /// </summary>
+    private static string? ControlWards(GameRecord g)
+    {
+        if (g.Me is not { } me) return null;
+        if (g.PostGame?.Find(me.Key) is { } pm) return pm.ControlWards.ToString();
+        int seen = g.Timeline.Items.Count(e => e.PlayerKey == me.Key && e.ItemId == 2055 && !e.Sold);
+        return seen > 0 ? $"{seen}+" : null;
     }
 
     // ---- detail ----
@@ -117,6 +137,9 @@ internal sealed partial class HistoryView
         var awards = Awards.For(g);
         host.Children.Add(CardOf(TitlesView(awards)));
 
+        // Surprise build: what it was and how it went.
+        if (g.Surprise is not null) host.Children.Add(SurpriseCard(g));
+
         // The rival duel, when your rival played this game.
         if (duel is not null) host.Children.Add(DuelView(duel, live: false));
 
@@ -129,6 +152,7 @@ internal sealed partial class HistoryView
             stats.Children.Add(Stat("CS", $"{me.CreepScore}  ({me.CreepScore / minutes:0.0}/min)"));
             stats.Children.Add(Stat("Level", me.Level.ToString()));
             stats.Children.Add(Stat("Item gold", $"{me.ItemGold:N0}"));
+            if (ControlWards(g) is { } wards) stats.Children.Add(Stat("Control wards", wards));
             stats.Children.Add(new StackPanel { Children = { Caption("Final items"), SlotRow(me, 30) } });
             host.Children.Add(CardOf(stats));
         }

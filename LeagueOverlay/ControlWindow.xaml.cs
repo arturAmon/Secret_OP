@@ -5,6 +5,7 @@ using LeagueOverlay.Core.Analysis;
 using LeagueOverlay.Core.Builds;
 using LeagueOverlay.Core.Data;
 using LeagueOverlay.Core.History;
+using LeagueOverlay.Core.Lcu;
 
 namespace LeagueOverlay;
 
@@ -22,6 +23,12 @@ public partial class ControlWindow : Window
     /// <summary>Export / import of popular builds, provided by the app (they need the running collector).</summary>
     public Func<string, string>? ExportBuilds { get; set; }
     public Func<string, Task<string>>? ImportBuilds { get; set; }
+
+    /// <summary>Creates a rune page in the League client (page, replace current if full) and returns what happened.</summary>
+    public Func<RuneSetup, bool, Task<string>>? ApplyRunes { get; set; }
+    /// <summary>Typical rune numbers from collected games, for the post-game rune analysis.</summary>
+    public Func<RuneBenchmarks?>? RuneBenchmarks { get; set; }
+    private ChampSelectView? _champSelect;
 
     /// <summary>Surprise build mode switched on/off, or a new surprise build asked for.</summary>
     public event Action<bool>? SurpriseToggled;
@@ -48,7 +55,14 @@ public partial class ControlWindow : Window
         _overlay.OverlayStateChanged += RefreshStatus;
         Closed += (_, _) => StopRequested?.Invoke();
         Graph.Icons = _icons;
-        _historyView = new HistoryView(_icons, id => _data.Items.Get(id)?.Name, () => _data.Items, () => _settings.Rival, SetRival, Share);
+        _historyView = new HistoryView(_icons, id => _data.Items.Get(id)?.Name, () => _data.Items, () => _settings.Rival, SetRival, Share)
+        {
+            Data = () => _data,
+            Benchmarks = () => RuneBenchmarks?.Invoke(),
+            BlockSurprise = (champ, theme) => BlockSurprise?.Invoke(champ, theme),
+            IsSurpriseBlocked = (champ, theme) => _settings.SurpriseBlocked.Contains(SurpriseBuilder.BlockKey(champ, theme), StringComparer.OrdinalIgnoreCase),
+        };
+        ReplacePageBox.IsChecked = _settings.RunesReplaceCurrent;
         _icons.IconLoaded += Graph.InvalidateVisual;
         // No point drawing the graph while minimised; catch up when the window comes back.
         StateChanged += (_, _) => { if (WindowState != WindowState.Minimized && _pendingHistory is { } h) ShowHistory(h); };
@@ -59,6 +73,7 @@ public partial class ControlWindow : Window
         SurpriseBox.IsChecked = _settings.SurpriseMode;
         ShowSurprise(null);
         _icons.IconLoaded += () => { if (_surprisePlan is not null) ShowSurprise(_surprisePlan); };
+        _icons.IconLoaded += () => { if (_champSelect is not null) ShowChampSelect(_champSelect); };
     }
 
     public void ShowHotkeyWarning(IReadOnlyList<string> failed)
@@ -117,6 +132,7 @@ public partial class ControlWindow : Window
         {
             CrawlState.NoKey => "Add your Riot API key in Settings to base item suggestions on what high-ranked players build. Until then they're rule-based.",
             CrawlState.Starting => $"Connecting to Riot ({region})…",
+            CrawlState.Collecting when s.CollectingRunes => $"Collecting rune pages in {region}: {s.RuneGames:N0} of {BuildCrawler.RuneTargetGames:N0} games for patch {s.Patch} (item builds are complete with {s.Games:N0} games).",
             CrawlState.Collecting => $"Collecting Challenger and Grandmaster games in {region}: {s.Games:N0} of {s.Target:N0} for patch {s.Patch}. A champion's suggestions switch over once it has {BuildLibrary.MinGames} games.",
             CrawlState.Paused => $"Paused while you're in a game, so it doesn't use your connection. {s.Games:N0} games collected for patch {s.Patch}.",
             CrawlState.Complete => $"Up to date: {s.Games:N0} games from {region} for patch {s.Patch}.",
@@ -126,7 +142,7 @@ public partial class ControlWindow : Window
         };
         BuildStatus.Foreground = (Brush)FindResource(s.State == CrawlState.KeyRejected ? "ErrBrush" : "MutedBrush");
         BuildProgress.Visibility = s.State is CrawlState.NoKey ? Visibility.Collapsed : Visibility.Visible;
-        BuildProgress.Value = Math.Min(1, s.Games / (double)Math.Max(1, s.Target));
+        BuildProgress.Value = s.CollectingRunes ? s.RuneGames / (double)BuildCrawler.RuneTargetGames : Math.Min(1, s.Games / (double)Math.Max(1, s.Target));
     }
 
     /// <summary>What the suggestions for the current champion are based on (null name = not in a game).</summary>
@@ -158,7 +174,9 @@ public partial class ControlWindow : Window
         _surprisePlan = plan;
         bool on = SurpriseBox.IsChecked == true;
         SurpriseItems.Children.Clear();
-        SurpriseTitle.Visibility = RerollButton.Visibility = on && plan is not null ? Visibility.Visible : Visibility.Collapsed;
+        SurpriseRunes.Content = null;
+        SurpriseTitle.Visibility = SurpriseButtons.Visibility = on && plan is not null ? Visibility.Visible : Visibility.Collapsed;
+        RefreshSurpriseBlocks();
         if (!on)
         {
             SurpriseText.Text = "Off. When on, every game gets an unexpected build your champion still scales with (AP Ezreal, healing Senna...).";
@@ -171,6 +189,7 @@ public partial class ControlWindow : Window
         }
         SurpriseTitle.Text = plan.Title;
         SurpriseText.Text = plan.Theme.Pitch;
+        SurpriseRunes.Content = plan.Runes is { } runes && _data.Runes.IsLoaded ? RunePanel.Page(runes, _data.Runes, _icons, (Brush)FindResource("MutedBrush")) : null;
         foreach (var id in plan.Path.Append(plan.Boots).Where(id => id > 0))
         {
             SurpriseItems.Children.Add(new Border
@@ -190,6 +209,82 @@ public partial class ControlWindow : Window
     }
 
     private void Reroll_Click(object sender, RoutedEventArgs e) => RerollRequested?.Invoke();
+
+    /// <summary>Blocks a champion + surprise style (championId, themeKey); provided by the app.</summary>
+    public Action<string, string>? BlockSurprise { get; set; }
+    public Action? UnblockAllSurprises { get; set; }
+
+    private void Block_Click(object sender, RoutedEventArgs e)
+    {
+        if (_surprisePlan is { } plan) BlockSurprise?.Invoke(plan.ChampionKey, plan.Theme.Key);
+    }
+
+    private void UnblockAll_Click(object sender, RoutedEventArgs e) => UnblockAllSurprises?.Invoke();
+
+    /// <summary>How many champion + style combinations are blocked, with a way to allow them again.</summary>
+    public void RefreshSurpriseBlocks(bool refreshHistory = false)
+    {
+        int n = _settings.SurpriseBlocked.Count;
+        BlockedRow.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
+        BlockedText.Text = n == 1 ? $"Not suggested again: {Describe(_settings.SurpriseBlocked[0])}."
+            : $"{n} builds won't be suggested again ({string.Join(", ", _settings.SurpriseBlocked.Take(3).Select(Describe))}{(n > 3 ? "…" : "")}).";
+        if (refreshHistory) ShowSelectedGame(); // the History button turns into "won't be suggested again"
+
+        string Describe(string key)
+        {
+            var parts = key.Split(':');
+            string champ = parts[0] is var id && _data.Champion(id) is { } c ? c.Name : parts[0];
+            string style = parts.Length > 1 ? SurpriseBuilder.Themes.FirstOrDefault(t => t.Key == parts[1])?.Label ?? parts[1] : "";
+            return $"{style} {champ}";
+        }
+    }
+
+    /// <summary>The champion select card: suggested runes for your champion and the Apply button. Null hides it.</summary>
+    public void ShowChampSelect(ChampSelectView? view)
+    {
+        bool changed = view?.ChampionId != _champSelect?.ChampionId || view?.Locked != _champSelect?.Locked || !Equals(view?.Runes, _champSelect?.Runes);
+        _champSelect = view;
+        ChampSelectCard.Visibility = view is null ? Visibility.Collapsed : Visibility.Visible;
+        if (view is null) { ApplyRunesStatus.Text = ItemSetStatus.Text = ""; return; }
+        if (changed) ApplyRunesStatus.Text = "";
+        ChampSelectStarter.Children.Clear();
+        ChampSelectStarterLabel.Visibility = view.Starter.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var g in view.Starter.GroupBy(id => id))
+            ChampSelectStarter.Children.Add(new Border
+            {
+                Width = 26, Height = 26, CornerRadius = new CornerRadius(3), ClipToBounds = true, Margin = new Thickness(0, 0, 4, 0),
+                Background = (Brush)FindResource("Panel2"), ToolTip = (g.Count() > 1 ? $"{g.Count()}× " : "") + _data.Items.Get(g.Key)?.Name,
+                Child = new System.Windows.Controls.Image { Source = _icons.Item(g.Key) },
+            });
+        string role = view.Position is { } p ? $" {p}" : "";
+        ChampSelectText.Text = view.Surprise
+            ? view.Locked ? $"Surprise build: {view.Source}. These runes fit it." : $"{view.ChampionName}: lock in to roll your surprise build."
+            : view.Runes is null
+                ? $"{view.ChampionName}{role}: no rune data yet. It comes from collected high-ranked games (Riot API key) or an imported builds file."
+                : $"{view.ChampionName}{role}{(view.Locked ? "" : " (hovering)")}: most common page, {view.Source}.";
+        ChampSelectRunes.Content = view.Runes is { } page && _data.Runes.IsLoaded ? RunePanel.Page(page, _data.Runes, _icons, (Brush)FindResource("MutedBrush")) : null;
+        ApplyRunesButton.IsEnabled = view.Runes is not null && ApplyRunes is not null;
+        ApplyRunesButton.Visibility = ReplacePageBox.Visibility = view.Runes is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>What happened to the shop item set sent on lock-in.</summary>
+    public void ShowItemSetStatus(string text) => ItemSetStatus.Text = text;
+
+    private async void ApplyRunes_Click(object sender, RoutedEventArgs e)
+    {
+        if (_champSelect?.Runes is not { } page || ApplyRunes is null) return;
+        ApplyRunesButton.IsEnabled = false;
+        ApplyRunesStatus.Text = "Applying…";
+        try { ApplyRunesStatus.Text = await ApplyRunes(page, _settings.RunesReplaceCurrent); }
+        finally { ApplyRunesButton.IsEnabled = _champSelect?.Runes is not null; }
+    }
+
+    private void ReplacePage_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        _settings.RunesReplaceCurrent = ReplacePageBox.IsChecked == true;
+        _settings.Save();
+    }
 
     public void ShowImportStatus(string text, bool busy)
     {
@@ -227,9 +322,6 @@ public partial class ControlWindow : Window
         if (RivalDuel.Compare(g.Players, _settings.Rival, g.Duration / 60, g.PostGame) is not { } duel) return;
         try { _rivalry.Record(g, duel); } catch (System.IO.IOException) { }
         RefreshRival();
-        SurpriseBox.IsChecked = _settings.SurpriseMode;
-        ShowSurprise(null);
-        _icons.IconLoaded += () => { if (_surprisePlan is not null) ShowSurprise(_surprisePlan); };
     }
 
     private void SetRival(string riotId)
@@ -244,9 +336,6 @@ public partial class ControlWindow : Window
         // Games already saved with this player count toward the tally straight away.
         foreach (var g in GameList.Items.OfType<ListBoxItem>().Select(i => i.Tag).OfType<GameRecord>()) RecordRivalry(g);
         RefreshRival();
-        SurpriseBox.IsChecked = _settings.SurpriseMode;
-        ShowSurprise(null);
-        _icons.IconLoaded += () => { if (_surprisePlan is not null) ShowSurprise(_surprisePlan); };
         ShowSelectedGame();
         RivalChanged?.Invoke();
     }

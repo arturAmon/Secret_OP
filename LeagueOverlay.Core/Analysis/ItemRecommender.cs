@@ -9,7 +9,9 @@ public sealed record Recommendation(int ItemId, string Name, int TotalCost, int 
 
 /// <param name="Reminder">A one-off shopping reminder, e.g. the trinket swap for your role.</param>
 /// <param name="ReminderItemId">The item the reminder is about (for its icon).</param>
-public sealed record ItemAdvice(Recommendation? Core, ValueList<Recommendation> Situational, string? BuyNow, string? Reminder = null, int? ReminderItemId = null)
+/// <param name="ReminderUrgent">The reminder is a warning (e.g. nothing bought at the start), drawn more loudly.</param>
+public sealed record ItemAdvice(Recommendation? Core, ValueList<Recommendation> Situational, string? BuyNow, string? Reminder = null, int? ReminderItemId = null,
+    bool ReminderUrgent = false)
 {
     public static readonly ItemAdvice None = new(null, ValueList<Recommendation>.Empty, null);
     public bool IsEmpty => Core is null && Situational.Count == 0 && Reminder is null;
@@ -66,6 +68,10 @@ public static class ItemRecommender
     public const int FarsightLevel = 9;
     /// <summary>Fallback for the sweeper reminder if the support item's upgrade can't be seen.</summary>
     public const double SweeperFallbackSeconds = 6 * 60;
+    /// <summary>Junglers: swap to Oracle Lens around the first back.</summary>
+    public const double JungleSweeperSeconds = 4 * 60;
+    /// <summary>Champions that jump to their own wards (Lee Sin's W, Jax's Q, Katarina's E): they keep the Stealth Ward.</summary>
+    public static readonly HashSet<string> WardHoppers = new(StringComparer.OrdinalIgnoreCase) { "LeeSin", "Jax", "Katarina" };
 
     /// <summary>
     /// Trinket swap for your role: Farsight Alteration from level 9 in mid / bot (ADC),
@@ -83,6 +89,9 @@ public static class ItemRecommender
             case "MIDDLE" or "BOTTOM" when me.Level >= FarsightLevel && !Owns(FarsightId):
                 itemId = FarsightId;
                 return $"Level {FarsightLevel}: swap trinket to {Name(FarsightId, "Farsight Alteration")}";
+            case "JUNGLE" when !Owns(OracleLensId) && !WardHoppers.Contains(me.ChampionKey) && (game.GameData?.GameTime ?? 0) >= JungleSweeperSeconds:
+                itemId = OracleLensId;
+                return $"Swap trinket to {Name(OracleLensId, "Oracle Lens")}: sweep the enemy wards around your camps and objectives";
             case "UTILITY" when !Owns(OracleLensId):
                 bool upgraded = me.Items.Any(i => items.Get(i.ItemID) is { IsSupportItem: true } s && (!s.Purchasable || s.From.Count > 0));
                 itemId = OracleLensId;
@@ -98,6 +107,22 @@ public static class ItemRecommender
     /// <param name="surprise">Surprise build mode: follow this plan instead of the usual suggestions.</param>
     public static ItemAdvice Recommend(LiveGame game, StaticData data, int? myLaneScore = null, ChampionBuild? popular = null,
         bool darkSealFull = false, SurprisePlan? surprise = null)
+    {
+        var advice = RecommendItems(game, data, myLaneScore, popular, darkSealFull, surprise);
+        // Start of the game: the starting items, and a warning if nothing was bought. Takes priority over other reminders.
+        if (game.Me is { } me && data.IsLoaded && data.Champion(me.ChampionKey) is { } champ)
+        {
+            var (style, ap) = surprise is not null && string.Equals(surprise.ChampionKey, champ.Id, StringComparison.OrdinalIgnoreCase)
+                ? StarterItems.ForTheme(surprise.Theme.Key) : Profile(champ, me, data.Items);
+            var starter = StarterItems.Best(surprise is null ? popular : null, me.Position, style, ap, me.HasSmite);
+            if (StarterItems.Reminder(game, me, data.Items, starter) is { } start)
+                advice = advice with { Reminder = start.Text, ReminderItemId = start.ItemId, ReminderUrgent = start.Urgent };
+        }
+        return advice;
+    }
+
+    private static ItemAdvice RecommendItems(LiveGame game, StaticData data, int? myLaneScore, ChampionBuild? popular,
+        bool darkSealFull, SurprisePlan? surprise)
     {
         if (game.Me is not { } me || game.ActivePlayer is not { } active) return ItemAdvice.None;
         var reminder = TrinketReminder(game, me, data.Items, out int reminderItem);
@@ -299,13 +324,20 @@ public static class ItemRecommender
         };
     }
 
+    /// <summary>How a champion is usually built, before any items (e.g. in champion select).</summary>
+    public static (BuildStyle Style, bool Ap) UsualProfile(ChampionInfo champ) => StyleOf(champ, champ.Magic > champ.Attack);
+
     public static (BuildStyle Style, bool Ap) Profile(ChampionInfo champ, Player me, ItemCatalog items)
     {
         bool ap = champ.Magic > champ.Attack;
         double ownAp = items.StatTotal(me, Stat.AbilityPower) / Norm[Stat.AbilityPower];
         double ownAd = items.StatTotal(me, Stat.AttackDamage) / Norm[Stat.AttackDamage];
         if (ownAp + ownAd >= 0.75) ap = ownAp > ownAd; // what they've actually built wins
+        return StyleOf(champ, ap);
+    }
 
+    private static (BuildStyle Style, bool Ap) StyleOf(ChampionInfo champ, bool ap)
+    {
         var style = champ.PrimaryTag switch
         {
             "Marksman" => ap ? BuildStyle.Mage : BuildStyle.Marksman,

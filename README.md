@@ -6,10 +6,16 @@ A small Windows companion app for League of Legends: an in-game overlay plus a w
 
 ## What it shows
 
+**Champion select**
+- The most common rune page for your champion and role, applied to the client with one click
+- Starting items, and a page in the in-game shop with the build (an item set named "League Overlay")
+
 **In game (overlay)**
 - How far your team is ahead or behind in gold spent on items
 - Which lane is furthest ahead or behind (item gold + levels)
 - What to buy next, with item icons, and reminders like swapping to Farsight Alteration or Oracle Lens
+- Starting items, and a warning if you haven't bought anything at the start
+- Stack counters: Dark Seal / Mejai's Glory, Veigar, Senna, Cho'Gath (with the minion stacks left), Sion, Thresh
 - Adjustable background and overall opacity, and movable with a hotkey
 
 **App window**
@@ -20,7 +26,13 @@ A small Windows companion app for League of Legends: an in-game overlay plus a w
   - a match report: damage, laning at 10 and 15 minutes, objectives and highlights
   - your build next to what the overlay suggested
   - lighthearted titles for what you did well
+  - your runes: what each one did, compared with what it usually does, and alternatives that would probably have done more
 - A shareable image of any game, to paste into Discord
+
+**Surprise build mode**
+- When you lock in, you get an unexpected build your champion's abilities actually scale with (AP Ezreal, crit Garen, on-hit Teemo...), with runes and a shop page to match
+- Kept for the whole game; reroll it, or block a combination you didn't enjoy
+- History shows how each surprise game went
 
 ## Optional: better item suggestions
 

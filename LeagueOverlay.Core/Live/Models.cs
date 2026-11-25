@@ -44,6 +44,18 @@ public sealed class ActivePlayer
     public int Level { get; set; }
     public ChampionStats? ChampionStats { get; set; }
     public FullRunes? FullRunes { get; set; }
+    public Abilities? Abilities { get; set; }
+}
+
+/// <summary>Your abilities' ranks (only R is used, for Cho'Gath's Feast).</summary>
+public sealed class Abilities
+{
+    public Ability? R { get; set; }
+}
+
+public sealed class Ability
+{
+    public int AbilityLevel { get; set; }
 }
 
 /// <summary>Your champion's current stats as the game shows them (items, runes and stacks included).</summary>

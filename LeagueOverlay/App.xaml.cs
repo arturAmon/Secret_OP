@@ -5,6 +5,7 @@ using LeagueOverlay.Core.Analysis;
 using LeagueOverlay.Core.Builds;
 using LeagueOverlay.Core.Data;
 using LeagueOverlay.Core.History;
+using LeagueOverlay.Core.Lcu;
 using LeagueOverlay.Core.Live;
 
 namespace LeagueOverlay;
@@ -27,8 +28,13 @@ public partial class App : Application
     private readonly GameRecordStore _games = new(GameRecordStore.DefaultRoot);
     private readonly StackTracker _stacks = new();
     // Surprise build: one plan per game (and champion) until rerolled.
-    private SurprisePlan? _surprise;
-    private string? _surpriseGame;
+    private readonly SurpriseSession _surprise = new();
+    // The shop item set already sent for this lock-in (champion + plan), so it's written once.
+    private string? _itemSetKey;
+    // The League client (lobby / champion select), for rune suggestions before the game.
+    private readonly LcuClient _lcu = new();
+    // The surprise plan the current game is being played with (null when surprise mode is off), saved with the game.
+    private SurprisePlan? _gameSurprise;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -66,7 +72,11 @@ public partial class App : Application
         _control.BuildSettingsChanged += RestartBuilds;
         _control.ImportRequested += () => ImportRecentGames(userAsked: true);
         _control.SurpriseToggled += on => { _settings.SurpriseMode = on; _settings.Save(); };
-        _control.RerollRequested += () => { _surprise = null; }; // a new plan on the next read
+        _control.RerollRequested += () => { _surprise.Reroll(); _itemSetKey = null; }; // a new plan (and item set) on the next read
+        _control.BlockSurprise = BlockSurprise;
+        _control.UnblockAllSurprises = () => { _settings.SurpriseBlocked.Clear(); _settings.Save(); _control?.RefreshSurpriseBlocks(refreshHistory: true); };
+        _control.ApplyRunes = (page, replace) => _lcu.ApplyPageAsync(page, replace, _cts.Token);
+        _control.RuneBenchmarks = () => _library?.Benchmarks;
         _control.ExportBuilds = ExportBuilds;
         _control.ImportBuilds = ImportBuildsAsync;
         _control.ShowHotkeyWarning(_window.ApplyHotkeys());
@@ -77,6 +87,7 @@ public partial class App : Application
         _control.Show();
 
         _ = RunAsync(_cts.Token);
+        _ = RunChampSelectAsync(_cts.Token);
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -87,6 +98,7 @@ public partial class App : Application
         lock (_recorder) unfinished = _recorder.IsRecording ? _recorder.Finish() : null; // closed mid-game: keep it anyway
         if (unfinished is not null) SaveGame(unfinished, show: false);
         _window?.Close();
+        _lcu.Dispose();
         _singleInstance?.Dispose();
         base.OnExit(e);
     }
@@ -116,6 +128,7 @@ public partial class App : Application
                         data = await DataDragon.LoadAsync(http, DataDragon.DefaultCacheRoot, ct);
                         _control?.SetDataStatus($"Item data: patch {data.Version}");
                         _control?.SetStaticData(data);
+                        _window?.SetStaticData(data);
                         _data = data;
                         ImportBundledBuilds();
                         RestartBuilds();
@@ -143,6 +156,8 @@ public partial class App : Application
                 Func<int, string?, ChampionBuild?>? popular = library is null ? null : library.For;
                 string? rivalId = _settings.Rival;
                 var surprise = SurpriseFor(game, current);
+                if (game is not null) _gameSurprise = surprise;
+                else _surprise.NoGame();
                 var (state, snapshot, finished, matchup, duel) = game is null ? (null, null, FinishGame(), null, null) : await Task.Run(() =>
                 {
                     var s = OverlayState.Build(game, current, _settings.LevelWeight, popular, _stacks, surprise);
@@ -186,14 +201,125 @@ public partial class App : Application
     private SurprisePlan? SurpriseFor(LiveGame? game, StaticData data)
     {
         if (!_settings.SurpriseMode || game?.Me is not { } me || data.Champion(me.ChampionKey) is not { } champ) return null;
-        string gameKey = string.Join("|", game.AllPlayers.Select(p => p.RiotId ?? p.SummonerName)) + "|" + champ.Id;
-        if (_surprise is null || _surpriseGame != gameKey)
+        // The plan rolled when you locked in (runes already set to match it) carries into the game and stays for all of it.
+        if (_surprise.Game(champ, () => RollSurprise(champ, data)))
+            _control?.ShowSurprise(_surprise.Plan);
+        return _surprise.Plan;
+    }
+
+    /// <summary>A new surprise plan: a style the champion's abilities scale with (weighted by fit), minus the ones you blocked.</summary>
+    private SurprisePlan? RollSurprise(ChampionInfo champ, StaticData data) =>
+        SurpriseBuilder.Plan(champ, data.Items, Random.Shared.Next(), data.Runes, data.Kits.For(champ.Key),
+            _settings.SurpriseBlocked.ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>"Don't suggest this again": blocks the champion + style, and rerolls if it's the current plan.</summary>
+    private void BlockSurprise(string championId, string themeKey)
+    {
+        string key = SurpriseBuilder.BlockKey(championId, themeKey);
+        if (!_settings.SurpriseBlocked.Contains(key, StringComparer.OrdinalIgnoreCase)) _settings.SurpriseBlocked.Add(key);
+        _settings.Save();
+        if (_surprise.Plan is { } plan && SurpriseBuilder.BlockKey(plan.ChampionKey, plan.Theme.Key) == key) { _surprise.Reroll(); _itemSetKey = null; }
+        _control?.RefreshSurpriseBlocks(refreshHistory: true);
+    }
+
+    /// <summary>
+    /// Champion select loop: asks the League client (not the game) every 2 seconds which champion you have, and shows
+    /// the suggested runes on the overlay and in the app window. Idle while a game runs; every 5 seconds without a client.
+    /// </summary>
+    private async Task RunChampSelectAsync(CancellationToken ct)
+    {
+        ChampSelectView? last = null;
+        bool shown = false;
+        while (!ct.IsCancellationRequested)
         {
-            _surprise = SurpriseBuilder.Plan(champ, data.Items, Random.Shared.Next());
-            _surpriseGame = gameKey;
-            _control?.ShowSurprise(_surprise);
+            ChampSelectView? view = null;
+            try
+            {
+                if (!_inGame && _data.IsLoaded && await _lcu.TryChampSelectAsync(ct) is { ChampionId: > 0 } state &&
+                    _data.ChampionByKey(state.ChampionId) is { } champ)
+                    view = ChampSelectViewFor(state, champ);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+            catch (Exception ex) { Debug.WriteLine($"Champion select read failed: {ex.Message}"); }
+
+            if (!shown || !Equals(view, last))
+            {
+                _window?.RenderChampSelect(view);
+                _control?.ShowChampSelect(view);
+                last = view;
+                shown = true;
+            }
+            if (view is { Locked: true }) await SendItemSetAsync(view, ct);
+            try { await Task.Delay(TimeSpan.FromSeconds(view is not null || _lcu.IsConnected ? 2 : 5), ct); }
+            catch (OperationCanceledException) { break; }
         }
-        return _surprise;
+    }
+
+    /// <summary>
+    /// What to show for your champion: in surprise mode the surprise build rolled on lock-in (kept until the game, a new
+    /// champion or a reroll), otherwise the most common rune page and first items from collected games.
+    /// </summary>
+    private ChampSelectView ChampSelectViewFor(ChampSelectState state, ChampionInfo champ)
+    {
+        string? position = state.Position?.ToUpperInvariant() switch
+        {
+            "TOP" => "TOP", "JUNGLE" => "JUNGLE", "MIDDLE" or "MID" => "MIDDLE", "BOTTOM" => "BOTTOM", "UTILITY" => "UTILITY", _ => null,
+        };
+        string? roleLabel = position switch
+        {
+            "TOP" => "top", "JUNGLE" => "jungle", "MIDDLE" => "mid", "BOTTOM" => "ADC", "UTILITY" => "support", _ => null,
+        };
+        if (_settings.SurpriseMode)
+        {
+            if (!state.Locked) return new ChampSelectView(champ.Id, champ.Name, roleLabel, false, null, "", ValueList<int>.Empty, true);
+            if (_surprise.ChampSelect(champ, () => RollSurprise(champ, _data)))
+                _control?.ShowSurprise(_surprise.Plan);
+            if (_surprise.Plan is { } plan)
+            {
+                var (themeStyle, themeAp) = StarterItems.ForTheme(plan.Theme.Key);
+                var path = new ValueList<int>(plan.Path.Append(plan.Boots).Where(id => id > 0));
+                return new ChampSelectView(champ.Id, champ.Name, roleLabel, true, plan.Runes, plan.Title, path, true)
+                {
+                    Starter = StarterItems.For(position, themeStyle, themeAp, smite: false),
+                    FullPath = path,
+                };
+            }
+        }
+        var page = _library?.Runes(champ.Key, position);
+        var build = _library?.For(champ.Key, position);
+        string source = page is null ? "" : $"{page.Games:N0} games: {page.Share:P0} of them use it, {page.WinRate:P0} of those won";
+        var (style, ap) = ItemRecommender.UsualProfile(champ);
+        var boots = build?.BootsShare.OrderByDescending(b => b.Value).Select(b => b.Key).FirstOrDefault() ?? 0;
+        return new ChampSelectView(champ.Id, champ.Name, roleLabel, state.Locked, page?.Setup, source,
+            new ValueList<int>(build?.Path.Take(3) ?? []), false)
+        {
+            Starter = StarterItems.Best(build, position, style, ap, smite: false),
+            FullPath = new ValueList<int>((build?.Path ?? []).Append(boots).Where(id => id > 0)),
+        };
+    }
+
+    /// <summary>
+    /// Once you lock in: a custom page in the in-game shop with the starting items and the build (the surprise build, or
+    /// the popular one). Sent once per champion and plan; replaces only the app's own item set.
+    /// </summary>
+    private async Task SendItemSetAsync(ChampSelectView view, CancellationToken ct)
+    {
+        if (view.FullPath.Count == 0 && view.Starter.Count == 0) return;
+        if (_data.Champion(view.ChampionId) is not { Key: > 0 } champ) return;
+        string key = $"{view.ChampionId}|{view.Source}|{string.Join(",", view.FullPath)}";
+        if (key == _itemSetKey) return;
+        _itemSetKey = key;
+        string title = view.Surprise ? view.Source : $"{view.ChampionName}{(view.Position is { } p ? " " + p : "")}";
+        var core = view.FullPath.Where(id => _data.Items.Get(id) is not { IsBoots: true }).ToList();
+        var boots = view.FullPath.Where(id => _data.Items.Get(id) is { IsBoots: true }).ToList();
+        var blocks = new List<(string, IReadOnlyList<int>)>
+        {
+            ("Start", view.Starter.ToList()),
+            (view.Surprise ? $"Surprise build: {view.Source}" : "Most common build", core),
+            ("Boots", boots),
+        };
+        string result = await _lcu.ApplyItemSetAsync(title, champ.Key, blocks, ct);
+        _control?.ShowItemSetStatus(result);
     }
 
     /// <summary>The game client went away: wrap up the recorded game (null if none, or too short to keep).</summary>
@@ -204,6 +330,10 @@ public partial class App : Application
 
     private void SaveGame(GameRecord record, bool show)
     {
+        // Keep which surprise build this game was played with.
+        if (_gameSurprise is { } plan && string.Equals(plan.ChampionKey, record.ChampionKey, StringComparison.OrdinalIgnoreCase))
+            record = record with { Surprise = SurpriseRecord.From(plan) };
+        _gameSurprise = null;
         try { _games.Save(record); }
         catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException) { Debug.WriteLine($"Saving game failed: {e.Message}"); return; }
         if (show) _control?.ShowGames(_games.LoadRecent(), openNewest: true);

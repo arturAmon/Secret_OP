@@ -4,6 +4,8 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using LeagueOverlay.Core.Analysis;
+using LeagueOverlay.Core.Data;
+using LeagueOverlay.Core.Lcu;
 
 namespace LeagueOverlay;
 
@@ -20,6 +22,8 @@ public partial class OverlayWindow : Window
     private static readonly Brush Accent = Theme.YellowBrush;
     private static readonly Brush CellBorder = Frozen(0x2A, 0x2F, 0x3A);
     private static readonly Brush IconBackground = Frozen(0x2F, 0x35, 0x42);
+    private static readonly Brush ReminderBack = Theme.Tint(Theme.Yellow, 0x33);
+    private static readonly Brush UrgentBack = Theme.Tint(Color.FromRgb(0xE0, 0x5D, 0x5D), 0x40);
     private static readonly Brush PanelBorder = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
 
     private readonly Settings _settings;
@@ -30,12 +34,16 @@ public partial class OverlayWindow : Window
     private nint _hwnd;
     private KeyboardHook? _keys;
     private bool _moveMode, _userHidden, _inGame;
+    private ChampSelectView? _champSelect;
+    private RuneCatalog _runes = RuneCatalog.Empty;
+    private Func<int, string?>? _itemName;
 
     public event Action? QuitRequested;
     /// <summary>Raised when in-game, hidden or move-mode state changes (for the control window's status).</summary>
     public event Action? OverlayStateChanged;
 
     public bool InGame => _inGame;
+    public bool InChampSelect => _champSelect is not null;
     public bool UserHidden => _userHidden;
     public bool MoveMode => _moveMode;
 
@@ -46,7 +54,11 @@ public partial class OverlayWindow : Window
         InitializeComponent();
         ApplyAppearance();
         // Icons arrive after the first draw; redraw the current state once they're in.
-        _icons.IconLoaded += () => { if (_lastState is not null) { RenderItems(_lastState.Items); RenderStacks(_lastState.Stacks); } };
+        _icons.IconLoaded += () =>
+        {
+            if (_lastState is not null) { RenderItems(_lastState.Items); RenderStacks(_lastState.Stacks); }
+            else if (_champSelect is not null) RenderChampSelect(_champSelect);
+        };
         BuildLaneCells();
         PlaceWindow();
         MouseLeftButtonDown += (_, _) => { if (_moveMode) DragMove(); };
@@ -143,7 +155,10 @@ public partial class OverlayWindow : Window
 
     private void UpdateVisibility()
     {
-        bool show = _moveMode || _preview || (_inGame && !_userHidden);
+        bool champSelect = !_inGame && _champSelect is not null;
+        ChampSelectPanel.Visibility = champSelect ? Visibility.Visible : Visibility.Collapsed;
+        GamePanel.Visibility = champSelect ? Visibility.Collapsed : Visibility.Visible;
+        bool show = _moveMode || _preview || ((_inGame || champSelect) && !_userHidden);
         if (show && !IsVisible) { Show(); KeepOnTop(); }
         else if (!show && IsVisible) Hide();
     }
@@ -209,6 +224,99 @@ public partial class OverlayWindow : Window
         RenderLanes(state.Lanes, state.MyLane);
         RenderItems(state.Items);
         UpdateVisibility();
+    }
+
+    /// <summary>Data for drawing rune pages and item names in champion select.</summary>
+    public void SetStaticData(StaticData data)
+    {
+        _runes = data.Runes;
+        _itemName = id => data.Items.Get(id)?.Name;
+    }
+
+    /// <summary>Champion select: the suggested runes over the League client. Null = not in champion select.</summary>
+    public void RenderChampSelect(ChampSelectView? view)
+    {
+        bool changed = (view is null) != (_champSelect is null);
+        _champSelect = view;
+        if (changed) OverlayStateChanged?.Invoke();
+        ChampSelectPanel.Children.Clear();
+        if (view is not null)
+        {
+            var head = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var champIcon = new Border
+            {
+                Width = 30, Height = 30, CornerRadius = new CornerRadius(4), ClipToBounds = true, Margin = new Thickness(0, 0, 8, 0),
+                Background = IconBackground, Child = new Image { Source = _icons.Champion(view.ChampionId) },
+            };
+            DockPanel.SetDock(champIcon, Dock.Left);
+            head.Children.Add(champIcon);
+            var title = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            title.Children.Add(new TextBlock
+            {
+                Text = view.Surprise ? $"SURPRISE · {(view.Locked ? view.Source : view.ChampionName)}".ToUpperInvariant() : $"RUNES · {view.ChampionName}{(view.Position is { } p ? " " + p : "")}".ToUpperInvariant(),
+                FontSize = 10, FontWeight = FontWeights.Bold, Foreground = view.Surprise ? Theme.PinkBrush : Accent,
+            });
+            title.Children.Add(new TextBlock
+            {
+                Text = view.Surprise ? (view.Locked ? "Runes and items that fit the surprise build" : "Lock in to roll your surprise build")
+                    : view.Locked ? view.Source : $"{view.Source} · hovering",
+                FontSize = 11, Foreground = Muted, TextWrapping = TextWrapping.Wrap,
+            });
+            head.Children.Add(title);
+            ChampSelectPanel.Children.Add(head);
+
+            if (view.Runes is { } page && _runes.IsLoaded)
+                ChampSelectPanel.Children.Add(RunePanel.Page(page, _runes, _icons, Muted));
+            else if (!view.Surprise || view.Locked)
+                ChampSelectPanel.Children.Add(new TextBlock
+                {
+                    Text = "No rune data for this champion yet. Rune suggestions come from collected high-ranked games (Riot API key in Settings) or an imported builds file.",
+                    FontSize = 11, Foreground = Muted, TextWrapping = TextWrapping.Wrap,
+                });
+
+            if (view.Starter.Count > 0)
+            {
+                ChampSelectPanel.Children.Add(new TextBlock { Text = "START", FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Muted, Margin = new Thickness(0, 10, 0, 4) });
+                var start = new WrapPanel();
+                foreach (var g in view.Starter.GroupBy(id => id))
+                {
+                    var cell = new Grid { Margin = new Thickness(0, 0, 4, 0) };
+                    cell.Children.Add(new Border
+                    {
+                        Width = 26, Height = 26, CornerRadius = new CornerRadius(3), ClipToBounds = true, Background = IconBackground,
+                        ToolTip = _itemName?.Invoke(g.Key), Child = new Image { Source = _icons.Item(g.Key) },
+                    });
+                    if (g.Count() > 1)
+                        cell.Children.Add(new TextBlock
+                        {
+                            Text = g.Count().ToString(), FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Text,
+                            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 2, 0),
+                        });
+                    start.Children.Add(cell);
+                }
+                ChampSelectPanel.Children.Add(start);
+            }
+
+            if (view.Items.Count > 0)
+            {
+                ChampSelectPanel.Children.Add(new TextBlock { Text = view.Surprise ? "BUILD" : "USUAL FIRST ITEMS", FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Muted, Margin = new Thickness(0, 10, 0, 4) });
+                var items = new WrapPanel();
+                foreach (int id in view.Items)
+                    items.Children.Add(new Border
+                    {
+                        Width = 26, Height = 26, CornerRadius = new CornerRadius(3), ClipToBounds = true, Margin = new Thickness(0, 0, 4, 0),
+                        Background = IconBackground, ToolTip = _itemName?.Invoke(id), Child = new Image { Source = _icons.Item(id) },
+                    });
+                ChampSelectPanel.Children.Add(items);
+            }
+            ChampSelectPanel.Children.Add(new TextBlock
+            {
+                Text = view.Locked ? "The build is in the in-game shop (League Overlay item set). Apply the rune page from the League Overlay window."
+                    : "Apply the rune page from the League Overlay window.", FontSize = 10.5, Foreground = Muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap,
+            });
+        }
+        UpdateVisibility();
+        if (view is not null) KeepOnTop();
     }
 
     private void RenderGold(GoldSummary gold)
@@ -289,6 +397,10 @@ public partial class OverlayWindow : Window
         if (advice.IsEmpty) return;
 
         ReminderText.Text = advice.Reminder ?? "";
+        // Warnings (nothing bought at the start) in red, normal reminders in the accent colour.
+        ReminderText.Foreground = advice.ReminderUrgent ? Red : Accent;
+        ReminderBox.BorderBrush = advice.ReminderUrgent ? Red : Accent;
+        ReminderBox.Background = advice.ReminderUrgent ? UrgentBack : ReminderBack;
         ReminderBox.Visibility = advice.Reminder is null ? Visibility.Collapsed : Visibility.Visible;
         ReminderIcon.Source = advice.ReminderItemId is { } rid ? _icons.Item(rid) : null;
         CorePanel.Visibility = advice.Core is null ? Visibility.Collapsed : Visibility.Visible;

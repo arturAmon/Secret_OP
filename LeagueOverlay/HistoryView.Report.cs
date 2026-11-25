@@ -56,6 +56,13 @@ internal sealed partial class HistoryView
             }
         }
 
+        // Runes: what each one did, compared with usual, and what else could have done more.
+        if (RunesReport(post, me, minutes, g.ChampionKey) is { } runes)
+        {
+            panel.Children.Add(Section("Runes"));
+            panel.Children.Add(runes);
+        }
+
         // Objectives.
         panel.Children.Add(Section("Objectives"));
         var objectives = new WrapPanel();
@@ -82,6 +89,112 @@ internal sealed partial class HistoryView
         var head = new TextBlock { FontSize = 11, Foreground = Muted, Margin = new Thickness(0, 0, 0, 4), Text = $"From Riot's match history ({post.MatchId})" };
         panel.Children.Insert(0, head);
         return CardOf(panel);
+    }
+
+    private RuneReport? AnalyseRunes(PostGameStats post, PostGamePlayer me, double minutes, string championKey)
+    {
+        if (Data?.Invoke() is not { Runes.IsLoaded: true } data) return null;
+        int champ = data.Champion(championKey)?.Key ?? 0;
+        return RuneAnalysis.Analyse(me, post, minutes, data.Runes, Benchmarks?.Invoke(), champ);
+    }
+
+    /// <summary>The surprise build a game was played with (items, runes) and how it went.</summary>
+    private FrameworkElement SurpriseCard(GameRecord g)
+    {
+        var plan = g.Surprise!;
+        var data = Data?.Invoke();
+        var me = g.Me is { } m ? g.PostGame?.Find(m.Key) : null;
+        var runes = me is not null && g.PostGame is { } post ? AnalyseRunes(post, me, Math.Max(1, g.Duration / 60), g.ChampionKey) : null;
+        var review = SurpriseReviewer.Review(g, me, runes, data?.Runes ?? LeagueOverlay.Core.Data.RuneCatalog.Empty);
+
+        var panel = new StackPanel();
+        panel.Children.Add(new TextBlock { Text = "SURPRISE BUILD", FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Theme.PinkBrush });
+        panel.Children.Add(new TextBlock { Text = review?.Headline ?? plan.Title, FontSize = 15, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 6) });
+
+        var items = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+        foreach (int id in plan.Path.Append(plan.Boots).Where(id => id > 0))
+        {
+            var icon = Icon(() => _icons.Item(id), 28);
+            icon.Margin = new Thickness(0, 0, 4, 0);
+            icon.ToolTip = _itemName(id);
+            items.Children.Add(icon);
+        }
+        panel.Children.Add(items);
+        if (plan.RunePage is { } page && data is { Runes.IsLoaded: true })
+            panel.Children.Add(RunePanel.Page(page, data.Runes, _icons, Muted, showNames: false));
+        foreach (var line in review?.Lines ?? [])
+            panel.Children.Add(new TextBlock { Text = line, FontSize = 12, Foreground = Text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+        if (BlockSurprise is not null)
+        {
+            bool blocked = IsSurpriseBlocked?.Invoke(g.ChampionKey, plan.Theme) == true;
+            var block = new Button
+            {
+                Content = blocked ? "Won't be suggested again" : "Not fun? Don't suggest this again", IsEnabled = !blocked,
+                HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0),
+                ToolTip = $"Never suggest {plan.Title} again",
+            };
+            block.Click += (_, _) => BlockSurprise(g.ChampionKey, plan.Theme);
+            panel.Children.Add(block);
+        }
+        var card = CardOf(panel);
+        card.BorderBrush = Theme.Tint(Theme.Pink, 0x80);
+        card.BorderThickness = new Thickness(1);
+        return card;
+    }
+
+    private FrameworkElement? RunesReport(PostGameStats post, PostGamePlayer me, double minutes, string championKey)
+    {
+        if (Data?.Invoke() is not { Runes.IsLoaded: true } data) return null;
+        if (AnalyseRunes(post, me, minutes, championKey) is not { } report) return null;
+
+        var panel = new StackPanel();
+        panel.Children.Add(RunePanel.Page(report.Page, data.Runes, _icons, Muted, showNames: false));
+        foreach (var line in report.Lines)
+        {
+            var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var title = new TextBlock { TextWrapping = TextWrapping.Wrap };
+            title.Inlines.Add(new Run(line.Name) { FontWeight = FontWeights.SemiBold });
+            if (line.Stats.Count == 0) title.Inlines.Add(new Run("   no numbers reported for this rune") { Foreground = Muted, FontSize = 11 });
+            foreach (var st in line.Stats) title.Inlines.Add(new Run($"   {st.Label}: {st.Value}") { Foreground = Muted, FontSize = 12 });
+            text.Children.Add(title);
+            if (line.Compare is { } cmp)
+                text.Children.Add(new TextBlock
+                {
+                    Text = cmp, FontSize = 11, TextWrapping = TextWrapping.Wrap,
+                    Foreground = line.Ratio >= RuneAnalysis.ClearGap ? Green : line.Ratio < 0.8 ? Red : Muted,
+                });
+            if (line.Suggestion is { } sug)
+            {
+                var row = new DockPanel { Margin = new Thickness(0, 2, 0, 0) };
+                if (line.SuggestedRune is { } alt)
+                {
+                    var icon = RunePanel.Icon(data.Runes, _icons, alt, 18);
+                    icon.Margin = new Thickness(0, 0, 6, 0);
+                    DockPanel.SetDock(icon, Dock.Left);
+                    row.Children.Add(icon);
+                }
+                row.Children.Add(new TextBlock { Text = sug, FontSize = 11, Foreground = Accent, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
+                text.Children.Add(row);
+            }
+            var rowPanel = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
+            var runeIcon = RunePanel.Icon(data.Runes, _icons, line.RuneId, 26);
+            runeIcon.Margin = new Thickness(0, 0, 10, 0);
+            runeIcon.VerticalAlignment = VerticalAlignment.Top;
+            DockPanel.SetDock(runeIcon, Dock.Left);
+            rowPanel.Children.Add(runeIcon);
+            rowPanel.Children.Add(text);
+            panel.Children.Add(rowPanel);
+        }
+        foreach (var note in report.Notes)
+            panel.Children.Add(new TextBlock { Text = note, FontSize = 12, Foreground = Accent, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) });
+        panel.Children.Add(new TextBlock
+        {
+            FontSize = 11, Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0),
+            Text = (report.HasBenchmarks ? "Typical values come from the high-ranked games collected for popular builds. " :
+                   "Collect high-ranked games (Riot API key) or import a builds file to compare with what each rune usually does. ") +
+                   "Match history only gives each rune's own end-of-game numbers, so activations are only counted for runes that report them.",
+        });
+        return panel;
     }
 
     /// <summary>Horizontal bars, one per player, your team first; bars in team colours, value at the end, you highlighted.</summary>

@@ -17,6 +17,10 @@
     <Border x:Name="Panel" Width="340" CornerRadius="8" Background="#EB0F1115"
             BorderBrush="#33FFFFFF" BorderThickness="1" Padding="12,10,12,10">
         <StackPanel>
+            <!-- Champion select: suggested runes (and the start of the build), built in code -->
+            <StackPanel x:Name="ChampSelectPanel" Visibility="Collapsed"/>
+
+            <StackPanel x:Name="GamePanel">
             <!-- Team gold difference (gold spent on items) -->
             <DockPanel LastChildFill="False">
                 <TextBlock x:Name="GoldText" DockPanel.Dock="Left" FontSize="18" FontWeight="Bold" Text="Waiting for game"/>
@@ -61,6 +65,7 @@
                 <StackPanel x:Name="SituationalPanel" Margin="0,6,0,0"/>
                 <TextBlock x:Name="BuyNowText" Margin="0,6,0,0" FontSize="12" Foreground="#F7FD0C" TextWrapping="Wrap"/>
                 </StackPanel>
+            </StackPanel>
             </StackPanel>
 
             <TextBlock x:Name="HintText" Margin="0,8,0,0" FontSize="11" Foreground="#F7FD0C" TextWrapping="Wrap" Visibility="Collapsed"
