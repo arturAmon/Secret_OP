@@ -138,6 +138,22 @@ public class RuneTests
         Assert.Equal(a!.Runes, b!.Runes);
     }
 
+    [Theory]
+    [InlineData("Ahri", "Arcane Comet")]   // mage: AP page
+    [InlineData("Malphite", "Grasp of the Undying")]
+    [InlineData("Garen", "Conqueror")]     // fighter: bruiser page
+    public void Standard_runes_fit_how_the_champion_is_usually_built(string champion, string keystone)
+    {
+        var champ = Data.Champion(champion)!;
+        var (page, style) = SurpriseBuilder.StandardRunes(champ, Runes)!.Value;
+        Assert.Equal(keystone, Runes.Name(page.Keystone));
+        Assert.True(page.IsComplete);
+        Assert.NotEqual(page.Primary, page.Secondary);
+        Assert.Equal(SurpriseBuilder.Themes.First(t => t.Key == SurpriseBuilder.UsualTheme(champ)).Label, style);
+        Assert.Equal(page, SurpriseBuilder.StandardRunes(champ, Runes)!.Value.Page); // always the same page
+        Assert.Null(SurpriseBuilder.StandardRunes(champ, RuneCatalog.Empty));
+    }
+
     private static (PostGamePlayer Me, PostGameStats Post) Game(int[] page, int keystoneVar, int enemyCc = 0)
     {
         var vars = new int[18];

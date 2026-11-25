@@ -359,19 +359,26 @@ public partial class App : Application
                 {
                     Starter = StarterItems.For(position, themeStyle, themeAp, smite: false),
                     FullPath = path,
+                    RuneOrigin = plan.Runes is null ? RuneOrigin.None : RuneOrigin.Surprise,
+                    RuneSource = plan.Title,
                 };
             }
         }
         var page = _library?.Runes(champ.Key, position);
         var build = _library?.For(champ.Key, position);
         string source = page is null ? "" : $"{page.Games:N0} games: {page.Share:P0} of them use it, {page.WinRate:P0} of those won";
+        // No collected games with a page for this champion: a standard page for how it's usually built.
+        var standard = page is null ? SurpriseBuilder.StandardRunes(champ, _data.Runes, _data.Kits.For(champ.Key)) : null;
         var (style, ap) = ItemRecommender.UsualProfile(champ);
         var boots = build?.BootsShare.OrderByDescending(b => b.Value).Select(b => b.Key).FirstOrDefault() ?? 0;
-        return new ChampSelectView(champ.Id, champ.Name, roleLabel, state.Locked, page?.Setup, source,
+        return new ChampSelectView(champ.Id, champ.Name, roleLabel, state.Locked, page?.Setup ?? standard?.Page,
+            page is null && standard is { } s ? $"standard {s.Style.ToLowerInvariant()} page" : source,
             new ValueList<int>(build?.Path.Take(3) ?? []), false)
         {
             Starter = StarterItems.Best(build, position, style, ap, smite: false),
             FullPath = new ValueList<int>((build?.Path ?? []).Append(boots).Where(id => id > 0)),
+            RuneOrigin = page is not null ? RuneOrigin.Popular : standard is not null ? RuneOrigin.Standard : RuneOrigin.None,
+            RuneSource = page is not null ? source : standard?.Style ?? "",
         };
     }
 

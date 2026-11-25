@@ -186,25 +186,55 @@ public static class SurpriseBuilder
     }
 
     /// <summary>
+    /// A standard rune page for how the champion is usually built (Arcane Comet mage, Conqueror bruiser, Grasp tank...):
+    /// the usual style's recipe with its first choices. Used when no collected games have a page for the champion yet.
+    /// Null when rune data isn't loaded.
+    /// </summary>
+    public static (RuneSetup Page, string Style)? StandardRunes(ChampionInfo champ, RuneCatalog runes, ChampionKit? kit = null)
+    {
+        if (!runes.IsLoaded) return null;
+        string usual = UsualTheme(champ, kit);
+        var theme = Themes.First(t => t.Key == usual);
+        // A better keystone for some classes than the recipe's first one.
+        string? keystone = (usual, champ.PrimaryTag) switch
+        {
+            ("ap", "Assassin") => "Electrocute",
+            ("ap", "Support") => "Summon Aery",
+            ("tank", "Support") => "Aftershock",
+            ("lethality", "Support") => "Hail of Blades",
+            ("crit", _) when kit is { Ranged: false } => "Conqueror",
+            _ => null,
+        };
+        var recipe = theme.Runes;
+        if (keystone is not null) recipe = recipe with { Keystones = [keystone, .. recipe.Keystones.Where(k => k != keystone)] };
+        return PickRunes(recipe, runes, null) is { } page ? (page, theme.Label) : null;
+    }
+
+    /// <summary>
     /// A valid page for the recipe: a keystone from the list (its tree is primary), the preferred rune in each primary row
     /// (random among preferred ones, or any if none fit), then two runes from different rows of a secondary tree.
+    /// Without <paramref name="rng"/>, the first choice everywhere (the recipe's order), so the page is always the same.
     /// </summary>
-    public static RuneSetup? PickRunes(RuneRecipe recipe, RuneCatalog runes, Random rng)
+    public static RuneSetup? PickRunes(RuneRecipe recipe, RuneCatalog runes, Random? rng)
     {
         var keystones = recipe.Keystones.Select(runes.ByName).OfType<RuneInfo>().Where(r => r.Row == 0 && r.Style != RuneCatalog.ShardStyle).ToList();
         if (keystones.Count == 0)
             keystones = runes.Styles.Where(s => s.Rows.Count > 0).SelectMany(s => s.Rows[0]).Select(runes.Get).OfType<RuneInfo>().ToList();
         if (keystones.Count == 0) return null;
-        var keystone = keystones[rng.Next(keystones.Count)];
+        var keystone = rng is null ? keystones[0] : keystones[rng.Next(keystones.Count)];
         if (runes.Style(keystone.Style) is not { Rows.Count: >= 4 } primary) return null;
-        var prefer = recipe.Prefer.Select(runes.ByName).OfType<RuneInfo>().Select(r => r.Id).ToHashSet();
+        var rank = new Dictionary<int, int>();
+        foreach (var r in recipe.Prefer.Select(runes.ByName).OfType<RuneInfo>()) rank.TryAdd(r.Id, rank.Count);
+        var prefer = rank.Keys.ToHashSet();
 
         int Pick(IReadOnlyList<int> row)
         {
             var liked = row.Where(prefer.Contains).ToList();
+            if (rng is null) return liked.Count > 0 ? liked.MinBy(id => rank[id]) : row[0];
             var pool = liked.Count > 0 ? liked : row;
             return pool[rng.Next(pool.Count)];
         }
+        int RowRank(IReadOnlyList<int> row) => row.Where(prefer.Contains).Select(id => rank[id]).DefaultIfEmpty(int.MaxValue).Min();
 
         var perks = new List<int> { keystone.Id };
         for (int row = 1; row < 4; row++) perks.Add(Pick(primary.Rows[row]));
@@ -212,10 +242,10 @@ public static class SurpriseBuilder
         var secondaries = recipe.Secondary.Select(runes.StyleByName).OfType<RuneStyle>().Where(s => s.Id != primary.Id && s.Rows.Count >= 4).ToList();
         if (secondaries.Count == 0) secondaries = runes.Styles.Where(s => s.Id != primary.Id && s.Rows.Count >= 4).ToList();
         if (secondaries.Count == 0) return null;
-        var secondary = secondaries[rng.Next(secondaries.Count)];
+        var secondary = rng is null ? secondaries[0] : secondaries[rng.Next(secondaries.Count)];
         // Two different non-keystone rows: rows with a preferred rune first.
         var rows = Enumerable.Range(1, secondary.Rows.Count - 1)
-            .OrderByDescending(r => secondary.Rows[r].Any(prefer.Contains)).ThenBy(_ => rng.Next()).Take(2).OrderBy(r => r).ToList();
+            .OrderByDescending(r => secondary.Rows[r].Any(prefer.Contains)).ThenBy(r => rng?.Next() ?? RowRank(secondary.Rows[r])).Take(2).OrderBy(r => r).ToList();
         foreach (int r in rows) perks.Add(Pick(secondary.Rows[r]));
 
         for (int i = 0; i < 3; i++)

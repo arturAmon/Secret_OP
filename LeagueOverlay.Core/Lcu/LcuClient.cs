@@ -400,4 +400,20 @@ public sealed record ChampSelectView(
     public ValueList<int> Starter { get; init; } = ValueList<int>.Empty;
     /// <summary>The full item path for the shop item set (surprise path + boots, or the popular path).</summary>
     public ValueList<int> FullPath { get; init; } = ValueList<int>.Empty;
+    /// <summary>Where <see cref="Runes"/> come from.</summary>
+    public RuneOrigin RuneOrigin { get; init; } = RuneOrigin.None;
+    /// <summary>For <see cref="RuneOrigin.Popular"/>: how many games and how often it won; for Standard: the build style it's for.</summary>
+    public string RuneSource { get; init; } = "";
+}
+
+/// <summary>Where a champion select rune page comes from.</summary>
+public enum RuneOrigin
+{
+    None,
+    /// <summary>The most common page in collected high-ranked games.</summary>
+    Popular,
+    /// <summary>No collected games: a standard page for how the champion is usually built.</summary>
+    Standard,
+    /// <summary>Matches the surprise build rolled on lock-in.</summary>
+    Surprise,
 }

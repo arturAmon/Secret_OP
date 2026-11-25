@@ -339,8 +339,8 @@ public partial class ControlWindow : Window
     }
 
     /// <summary>
-    /// The champion select card: champion suggestions until you lock in, then the suggested runes for your champion and
-    /// the Apply button. Hidden outside champion select.
+    /// The champion select card (champion suggestions until you lock in, then your champion's starting items) and the
+    /// runes card (the page, where it comes from, and the Apply button). Hidden outside champion select.
     /// </summary>
     public void ShowChampSelect(ChampSelectView? view, PickAdvice? picks = null, bool inChampSelect = false)
     {
@@ -350,12 +350,11 @@ public partial class ControlWindow : Window
         ChampSelectCard.Visibility = view is null && !inChampSelect ? Visibility.Collapsed : Visibility.Visible;
         ShowPicks(view is { Locked: true } ? null : picks);
         PicksDivider.Visibility = view is not null && picks is not null && view is not { Locked: true } && picks.Mode != PickMode.Off ? Visibility.Visible : Visibility.Collapsed;
-        ChampSelectText.Visibility = ChampSelectRunes.Visibility = ApplyRunesStatus.Visibility = ItemSetStatus.Visibility =
-            view is null ? Visibility.Collapsed : Visibility.Visible;
+        ChampSelectText.Visibility = ItemSetStatus.Visibility = RunesCard.Visibility = view is null ? Visibility.Collapsed : Visibility.Visible;
         if (view is null)
         {
             ApplyRunesStatus.Text = ItemSetStatus.Text = "";
-            ApplyRunesButton.Visibility = ReplacePageBox.Visibility = ChampSelectStarterLabel.Visibility = Visibility.Collapsed;
+            ChampSelectStarterLabel.Visibility = Visibility.Collapsed;
             ChampSelectStarter.Children.Clear();
             if (!inChampSelect) HoverStatus.Text = "";
             return;
@@ -372,13 +371,36 @@ public partial class ControlWindow : Window
             });
         string role = view.Position is { } p ? $" {p}" : "";
         ChampSelectText.Text = view.Surprise
-            ? view.Locked ? $"Surprise build: {view.Source}. These runes fit it." : $"{view.ChampionName}: lock in to roll your surprise build."
-            : view.Runes is null
-                ? $"{view.ChampionName}{role}: no rune data yet. It comes from collected high-ranked games (Riot API key) or an imported builds file."
-                : $"{view.ChampionName}{role}{(view.Locked ? "" : " (hovering)")}: most common page, {view.Source}.";
+            ? view.Locked ? $"{view.ChampionName}{role}: surprise build {view.Source}." : $"{view.ChampionName}: lock in to roll your surprise build."
+            : $"{view.ChampionName}{role}{(view.Locked ? "" : " (hovering)")}.";
+        ShowRuneOrigin(view);
         ChampSelectRunes.Content = view.Runes is { } page && _data.Runes.IsLoaded ? RunePanel.Page(page, _data.Runes, _icons, (Brush)FindResource("MutedBrush")) : null;
         ApplyRunesButton.IsEnabled = view.Runes is not null && ApplyRunes is not null;
         ApplyRunesButton.Visibility = ReplacePageBox.Visibility = view.Runes is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>The runes card's tag and text: whether the page comes from surprise mode, collected games or a standard page.</summary>
+    private void ShowRuneOrigin(ChampSelectView view)
+    {
+        string role = view.Position is { } p ? " " + p : "";
+        var (tag, brush, text) = view.RuneOrigin switch
+        {
+            RuneOrigin.Surprise => ("Surprise mode", "Accent3Brush",
+                $"From surprise build mode: these runes match your {view.RuneSource} build. Reroll it in the Surprise build mode card to change both."),
+            RuneOrigin.Popular => ("Popular page", "Accent2Brush",
+                $"The page high-ranked players run most on {view.ChampionName}{role}: {view.RuneSource}."),
+            RuneOrigin.Standard => ("Standard page", "AccentBrush",
+                $"A standard {view.RuneSource.ToLowerInvariant()} page for {view.ChampionName}, until collected high-ranked games have one for this " +
+                "champion (collecting needs a Riot API key in Settings, or import a builds file)."),
+            _ when view.Surprise && !view.Locked => ("Surprise mode", "Accent3Brush",
+                "Surprise build mode is on: lock in and the runes for your surprise build show here."),
+            _ => ("No runes", "MutedBrush", "Rune data isn't loaded yet."),
+        };
+        var color = (Brush)FindResource(brush);
+        RuneOriginText.Text = tag;
+        RuneOriginText.Foreground = color;
+        RuneOriginTag.BorderBrush = color;
+        RunesText.Text = text;
     }
 
     /// <summary>What happened to the shop item set sent on lock-in.</summary>

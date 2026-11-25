@@ -291,8 +291,9 @@ public partial class OverlayWindow : Window
             });
             title.Children.Add(new TextBlock
             {
-                Text = view.Surprise ? (view.Locked ? "Runes and items that fit the surprise build" : "Lock in to roll your surprise build")
-                    : view.Locked ? view.Source : $"{view.Source} · hovering",
+                Text = (view.Surprise ? (view.Locked ? "Runes from surprise mode: they fit the build" : "Lock in to roll your surprise build")
+                    : view.RuneOrigin == RuneOrigin.Standard ? $"Standard {view.RuneSource.ToLowerInvariant()} page (no collected games yet)" : view.Source)
+                    + (view.Locked ? "" : " · hovering"),
                 FontSize = 11, Foreground = Muted, TextWrapping = TextWrapping.Wrap,
             });
             head.Children.Add(title);
