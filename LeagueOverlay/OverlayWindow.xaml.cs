@@ -40,7 +40,6 @@ public partial class OverlayWindow : Window
     private RuneCatalog _runes = RuneCatalog.Empty;
     private Func<int, string?>? _itemName;
 
-    public event Action? QuitRequested;
     /// <summary>Raised when in-game, hidden or move-mode state changes (for the control window's status).</summary>
     public event Action? OverlayStateChanged;
 
@@ -63,7 +62,14 @@ public partial class OverlayWindow : Window
         };
         BuildLaneCells();
         PlaceWindow();
-        MouseLeftButtonDown += (_, _) => { if (_moveMode) DragMove(); };
+        // Move mode (started from Settings): drag to move, double-click or Esc to lock it in place.
+        MouseLeftButtonDown += (_, e) =>
+        {
+            if (!_moveMode) return;
+            if (e.ClickCount == 2) SetMoveMode(false);
+            else DragMove();
+        };
+        KeyDown += (_, e) => { if (_moveMode && e.Key == Key.Escape) SetMoveMode(false); };
         Render(null);
     }
 
@@ -94,8 +100,6 @@ public partial class OverlayWindow : Window
         var bindings = new[]
         {
             (_settings.ToggleOverlay, "Show / hide", (Action)(() => { _userHidden = !_userHidden; UpdateVisibility(); OverlayStateChanged?.Invoke(); })),
-            (_settings.MoveOverlay, "Move overlay", () => SetMoveMode(!_moveMode)),
-            (_settings.Quit, "Stop app", () => QuitRequested?.Invoke()),
         };
         _keys.SetBindings(bindings.Select(b => (b.Item1, b.Item3)));
         _keys.Enabled = true;
@@ -122,7 +126,7 @@ public partial class OverlayWindow : Window
         if (on == _moveMode) return;
         _moveMode = on;
         ApplyWindowStyles();
-        HintText.Text = $"Move mode: drag to reposition · press {_settings.MoveOverlay} again to lock";
+        HintText.Text = "Drag to move · double-click (or Esc) to lock it here";
         HintText.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
         Panel.BorderBrush = on ? Accent : PanelBorder;
         Panel.BorderThickness = new Thickness(on ? 2 : 1);

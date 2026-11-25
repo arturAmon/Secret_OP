@@ -17,7 +17,7 @@ A small Windows companion app for League of Legends: an in-game overlay plus a w
 - What to buy next, with item icons, and reminders like swapping to Farsight Alteration or Oracle Lens
 - Starting items, and a warning if you haven't bought anything at the start
 - Stack counters: Dark Seal / Mejai's Glory, Veigar, Senna, Cho'Gath (with the minion stacks left), Sion, Thresh
-- Adjustable background and overall opacity, and movable with a hotkey
+- Adjustable background and overall opacity, and movable (Settings > Overlay look > Move overlay)
 
 **App window**
 - Gold difference over the game, with every purchase and level-up for all ten players

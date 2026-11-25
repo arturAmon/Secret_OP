@@ -1,4 +1,4 @@
-<Window x:Class="LeagueOverlay.SettingsWindow"
+﻿<Window x:Class="LeagueOverlay.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings"
@@ -57,24 +57,15 @@
             <ScrollViewer x:Name="PageGeneral" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="22,18,22,20">
                     <TextBlock Text="General" Style="{StaticResource PageTitle}"/>
-                    <TextBlock Text="Hotkeys" Style="{StaticResource SectionTitle}" Margin="0,0,0,2"/>
-                    <TextBlock Style="{StaticResource Hint}" Text="Click a box, then press the new key combination. Include Ctrl or Alt (or use F1–F24) so it doesn't fire while you type in chat."/>
+                    <TextBlock Text="Hotkey" Style="{StaticResource SectionTitle}" Margin="0,0,0,2"/>
+                    <TextBlock Style="{StaticResource Hint}" Text="Click the box, then press the new key combination. Include Ctrl or Alt (or use F1–F24) so it doesn't fire while you type in chat. Closing the Secret OP window stops the app."/>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="150"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition/>
-                            <RowDefinition/>
-                            <RowDefinition/>
-                        </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Text="Show / hide overlay" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Row="1" Text="Move overlay" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Row="2" Text="Stop app" VerticalAlignment="Center"/>
                         <TextBox x:Name="ToggleBox" Grid.Row="0" Grid.Column="1" Margin="0,3" IsReadOnly="True" Cursor="Hand" FontFamily="Consolas"/>
-                        <TextBox x:Name="MoveBox" Grid.Row="1" Grid.Column="1" Margin="0,3" IsReadOnly="True" Cursor="Hand" FontFamily="Consolas"/>
-                        <TextBox x:Name="QuitBox" Grid.Row="2" Grid.Column="1" Margin="0,3" IsReadOnly="True" Cursor="Hand" FontFamily="Consolas"/>
                     </Grid>
 
                     <TextBlock Text="Overlay" Style="{StaticResource SectionTitle}" Margin="0,18,0,8"/>
@@ -131,6 +122,9 @@
                         <TextBlock x:Name="BackgroundValue" Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" FontFamily="Consolas"/>
                         <TextBlock x:Name="OverlayValue" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" FontFamily="Consolas" Margin="0,8,0,0"/>
                     </Grid>
+                    <TextBlock Text="Position" Style="{StaticResource SectionTitle}" Margin="0,18,0,2"/>
+                    <TextBlock Style="{StaticResource Hint}" Text="Saves your settings and closes this window, then you drag the overlay where you want it. Double-click it (or click Lock overlay in the main window) to fix it there."/>
+                    <Button x:Name="MoveOverlayButton" Content="Move overlay" HorizontalAlignment="Left" Click="MoveOverlay_Click"/>
                     <TextBlock Style="{StaticResource Hint}" Margin="0,16,0,0"
                                Text="The look of the images you share from History is picked in the Collection tab."/>
                 </StackPanel>
@@ -207,6 +201,12 @@
 
                     <TextBlock Text="Runes" Style="{StaticResource SectionTitle}"/>
                     <CheckBox x:Name="ReplaceRunesBox" Margin="0,4,0,0" Content="If no rune page is free, replace the current one when applying"/>
+
+                    <TextBlock Text="Surprise builds you turned off" Style="{StaticResource SectionTitle}"/>
+                    <DockPanel LastChildFill="True">
+                        <Button x:Name="UnblockButton" DockPanel.Dock="Right" Content="Allow all again" Click="Unblock_Click" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="BlockedText" Style="{StaticResource Hint}" Margin="0" VerticalAlignment="Center"/>
+                    </DockPanel>
                 </StackPanel>
             </ScrollViewer>
 

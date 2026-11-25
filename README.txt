@@ -45,10 +45,9 @@ Getting started
    The overlay can't show on top of full-screen mode.
 3. Start a game. The overlay appears by itself once you're past the loading screen.
 
-Hotkeys (change them in Settings):
-  Ctrl+Shift+O     show / hide the overlay
-  Ctrl+Shift+M     move the overlay (drag it, press again to lock)
-  Ctrl+Shift+End   close the app (closing the app window does the same)
+Ctrl+Shift+O shows / hides the overlay (change it in Settings). To move the overlay,
+use Settings > Overlay look > Move overlay, drag it, then double-click it to lock it.
+Closing the app window stops the app.
 
 In Settings you can also make the overlay's background more see-through (or remove it),
 or fade the whole overlay, so it covers less of the game.

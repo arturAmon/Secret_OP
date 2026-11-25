@@ -31,16 +31,12 @@ public sealed class Settings
     public double OverlayOpacity { get; set; } = 1;
     public const double DefaultBackgroundOpacity = 0.92, MinOverlayOpacity = 0.2;
 
-    public const string DefaultToggleHotkey = "Ctrl+Shift+O", DefaultMoveHotkey = "Ctrl+Shift+M", DefaultQuitHotkey = "Ctrl+Shift+End";
+    public const string DefaultToggleHotkey = "Ctrl+Shift+O";
 
     /// <summary>Global hotkeys, e.g. "Ctrl+Shift+O". Changed from the Settings window.</summary>
     public string ToggleOverlayHotkey { get; set; } = DefaultToggleHotkey;
-    public string MoveOverlayHotkey { get; set; } = DefaultMoveHotkey;
-    public string QuitHotkey { get; set; } = DefaultQuitHotkey;
 
     [JsonIgnore] public Hotkey ToggleOverlay => Hotkey.Parse(ToggleOverlayHotkey, Hotkey.Parse(DefaultToggleHotkey, default));
-    [JsonIgnore] public Hotkey MoveOverlay => Hotkey.Parse(MoveOverlayHotkey, Hotkey.Parse(DefaultMoveHotkey, default));
-    [JsonIgnore] public Hotkey Quit => Hotkey.Parse(QuitHotkey, Hotkey.Parse(DefaultQuitHotkey, default));
 
     /// <summary>Surprise build mode: unexpected builds instead of the usual suggestions.</summary>
     public bool SurpriseMode { get; set; }

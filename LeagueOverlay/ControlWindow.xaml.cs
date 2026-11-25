@@ -9,7 +9,7 @@ using LeagueOverlay.Core.Lcu;
 
 namespace LeagueOverlay;
 
-/// <summary>Main window shown at launch: status, current hotkeys, Settings / Move overlay / Stop. Closing it stops the app.</summary>
+/// <summary>Main window shown at launch: header (tabs, status, Settings), champion select, the live game, History and Collection. Closing it stops the app.</summary>
 public partial class ControlWindow : Window
 {
     private readonly Settings _settings;
@@ -123,11 +123,25 @@ public partial class ControlWindow : Window
 
     private void Tab_Checked(object sender, RoutedEventArgs e)
     {
-        if (LivePanel is null || HistoryPanel is null || CollectionPanel is null) return; // still loading
-        LivePanel.Visibility = LiveTab.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-        HistoryPanel.Visibility = HistoryTab.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-        CollectionPanel.Visibility = CollectionTab.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        if (LivePanel is null || HistoryPanel is null || CollectionPanel is null || PreGamePanel is null) return; // still loading
+        ShowPanels();
         if (CollectionTab.IsChecked == true) { CollectionDot.Visibility = Visibility.Collapsed; RefreshCollection(); }
+    }
+
+    /// <summary>
+    /// The selected tab's panel. "This game" shows champion select (suggestions, runes, surprise build) until a game
+    /// starts, then the live game.
+    /// </summary>
+    private void ShowPanels()
+    {
+        if (LivePanel is null || PreGamePanel is null || TabBody is null) return; // still loading
+        static Visibility Show(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
+        bool live = LiveTab.IsChecked == true, inGame = _overlay.InGame;
+        PreGamePanel.Visibility = Show(live && !inGame);
+        TabBody.Visibility = Show(!live || inGame);
+        LivePanel.Visibility = Show(live && inGame);
+        HistoryPanel.Visibility = Show(HistoryTab.IsChecked == true);
+        CollectionPanel.Visibility = Show(CollectionTab.IsChecked == true);
     }
 
     // ---- surprise rewards (Collection tab) ----
@@ -212,37 +226,11 @@ public partial class ControlWindow : Window
         Graph.History = history;
     }
 
-    /// <summary>The surprise build card: the plan for this game, or what the mode does when there's no game yet.</summary>
+    /// <summary>The surprise build for this game (shown in the items and runes cards during champion select).</summary>
     public void ShowSurprise(SurprisePlan? plan)
     {
         _surprisePlan = plan;
-        bool on = SurpriseBox.IsChecked == true;
-        SurpriseItems.Children.Clear();
-        SurpriseRunes.Content = null;
-        SurpriseTitle.Visibility = SurpriseButtons.Visibility = on && plan is not null ? Visibility.Visible : Visibility.Collapsed;
-        RefreshSurpriseBlocks();
-        if (!on)
-        {
-            SurpriseText.Text = "Off. When on, every game gets an unexpected build your champion still scales with (AP Ezreal, healing Senna...).";
-            return;
-        }
-        if (plan is null)
-        {
-            SurpriseText.Text = "On. Your next game gets a surprise build; the overlay will suggest its items.";
-            return;
-        }
-        SurpriseTitle.Text = plan.Title;
-        SurpriseText.Text = plan.Theme.Pitch;
-        SurpriseRunes.Content = plan.Runes is { } runes && _data.Runes.IsLoaded ? RunePanel.Page(runes, _data.Runes, _icons, (Brush)FindResource("MutedBrush")) : null;
-        foreach (var id in plan.Path.Append(plan.Boots).Where(id => id > 0))
-        {
-            SurpriseItems.Children.Add(new Border
-            {
-                Width = 30, Height = 30, CornerRadius = new CornerRadius(4), ClipToBounds = true, Margin = new Thickness(0, 0, 4, 4),
-                Background = (Brush)FindResource("Panel2"), ToolTip = _data.Items.Get(id)?.Name,
-                Child = new System.Windows.Controls.Image { Source = _icons.Item(id) },
-            });
-        }
+        if (_champSelect is not null) ShowItems(_champSelect);
     }
 
     private void Surprise_Changed(object sender, RoutedEventArgs e)
@@ -256,31 +244,16 @@ public partial class ControlWindow : Window
 
     /// <summary>Blocks a champion + surprise style (championId, themeKey); provided by the app.</summary>
     public Action<string, string>? BlockSurprise { get; set; }
-    public Action? UnblockAllSurprises { get; set; }
 
     private void Block_Click(object sender, RoutedEventArgs e)
     {
         if (_surprisePlan is { } plan) BlockSurprise?.Invoke(plan.ChampionKey, plan.Theme.Key);
     }
 
-    private void UnblockAll_Click(object sender, RoutedEventArgs e) => UnblockAllSurprises?.Invoke();
-
-    /// <summary>How many champion + style combinations are blocked, with a way to allow them again.</summary>
+    /// <summary>After blocking or allowing surprise builds again: the History report's button follows.</summary>
     public void RefreshSurpriseBlocks(bool refreshHistory = false)
     {
-        int n = _settings.SurpriseBlocked.Count;
-        BlockedRow.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
-        BlockedText.Text = n == 1 ? $"Not suggested again: {Describe(_settings.SurpriseBlocked[0])}."
-            : $"{n} builds won't be suggested again ({string.Join(", ", _settings.SurpriseBlocked.Take(3).Select(Describe))}{(n > 3 ? "…" : "")}).";
         if (refreshHistory) ShowSelectedGame(); // the History button turns into "won't be suggested again"
-
-        string Describe(string key)
-        {
-            var parts = key.Split(':');
-            string champ = parts[0] is var id && _data.Champion(id) is { } c ? c.Name : parts[0];
-            string style = parts.Length > 1 ? SurpriseBuilder.Themes.FirstOrDefault(t => t.Key == parts[1])?.Label ?? parts[1] : "";
-            return $"{style} {champ}";
-        }
     }
 
     /// <summary>Champion suggestions mode changed / another surprise pick asked for / hover a champion (returns what happened).</summary>
@@ -340,35 +313,27 @@ public partial class ControlWindow : Window
 
     /// <summary>
     /// The champion select card (champion suggestions until you lock in, then your champion's starting items) and the
-    /// runes card (the page, where it comes from, and the Apply button). Hidden outside champion select.
+    /// runes card (the page, where it comes from, and the Apply button). Outside champion select the card says so and the
+    /// runes card is hidden.
     /// </summary>
     public void ShowChampSelect(ChampSelectView? view, PickAdvice? picks = null, bool inChampSelect = false)
     {
+        if (inChampSelect && !_inChampSelect) ShowLiveTab(); // champion select started: suggestions and runes are there
         _inChampSelect = inChampSelect;
         bool changed = view?.ChampionId != _champSelect?.ChampionId || view?.Locked != _champSelect?.Locked || !Equals(view?.Runes, _champSelect?.Runes);
         _champSelect = view;
-        ChampSelectCard.Visibility = view is null && !inChampSelect ? Visibility.Collapsed : Visibility.Visible;
+        ChampSelectIdle.Visibility = view is null && !inChampSelect ? Visibility.Visible : Visibility.Collapsed;
         ShowPicks(view is { Locked: true } ? null : picks);
         PicksDivider.Visibility = view is not null && picks is not null && view is not { Locked: true } && picks.Mode != PickMode.Off ? Visibility.Visible : Visibility.Collapsed;
-        ChampSelectText.Visibility = ItemSetStatus.Visibility = RunesCard.Visibility = view is null ? Visibility.Collapsed : Visibility.Visible;
+        ChampSelectText.Visibility = RunesCard.Visibility = ItemsCard.Visibility = view is null ? Visibility.Collapsed : Visibility.Visible;
         if (view is null)
         {
             ApplyRunesStatus.Text = ItemSetStatus.Text = "";
-            ChampSelectStarterLabel.Visibility = Visibility.Collapsed;
-            ChampSelectStarter.Children.Clear();
             if (!inChampSelect) HoverStatus.Text = "";
             return;
         }
         if (changed) ApplyRunesStatus.Text = "";
-        ChampSelectStarter.Children.Clear();
-        ChampSelectStarterLabel.Visibility = view.Starter.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        foreach (var g in view.Starter.GroupBy(id => id))
-            ChampSelectStarter.Children.Add(new Border
-            {
-                Width = 26, Height = 26, CornerRadius = new CornerRadius(3), ClipToBounds = true, Margin = new Thickness(0, 0, 4, 0),
-                Background = (Brush)FindResource("Panel2"), ToolTip = (g.Count() > 1 ? $"{g.Count()}× " : "") + _data.Items.Get(g.Key)?.Name,
-                Child = new System.Windows.Controls.Image { Source = _icons.Item(g.Key) },
-            });
+        ShowItems(view);
         string role = view.Position is { } p ? $" {p}" : "";
         ChampSelectText.Text = view.Surprise
             ? view.Locked ? $"{view.ChampionName}{role}: surprise build {view.Source}." : $"{view.ChampionName}: lock in to roll your surprise build."
@@ -379,6 +344,47 @@ public partial class ControlWindow : Window
         ApplyRunesButton.Visibility = ReplacePageBox.Visibility = view.Runes is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
+    /// <summary>
+    /// The items card: starting items and the build (the surprise build with Reroll, or what high-ranked players build),
+    /// with where it comes from.
+    /// </summary>
+    private void ShowItems(ChampSelectView view)
+    {
+        string role = view.Position is { } p ? " " + p : "";
+        bool rolled = view.Surprise && view.Locked;
+        // The build's pitch: from its style ("On-hit Jinx" -> the On-hit style).
+        var theme = rolled ? SurpriseBuilder.Themes.FirstOrDefault(t => view.Source.StartsWith(t.Label + " ")) : null;
+        var (tag, brush, text) = (view.Surprise, view.Locked, view.FullPath.Count > 0) switch
+        {
+            (true, true, _) => ("Surprise mode", "Accent3Brush", theme?.Pitch ?? "Items that fit your surprise build."),
+            (true, false, _) => ("Surprise mode", "Accent3Brush", "Lock in to roll your surprise build: its items show here."),
+            (false, _, true) => ("Popular build", "Accent2Brush", $"What high-ranked players build on {view.ChampionName}{role}."),
+            _ => ("Starting items", "MutedBrush", $"No collected build for {view.ChampionName}{role} yet: the overlay suggests items as you play."),
+        };
+        var color = (Brush)FindResource(brush);
+        ItemOriginText.Text = tag;
+        ItemOriginText.Foreground = color;
+        ItemOriginTag.BorderBrush = color;
+        ItemsTitle.Text = rolled ? view.Source : "";
+        ItemsTitle.Visibility = rolled ? Visibility.Visible : Visibility.Collapsed;
+        ItemsText.Text = text;
+        SurpriseButtons.Visibility = rolled ? Visibility.Visible : Visibility.Collapsed;
+
+        Border Icon(int id, int count) => new()
+        {
+            Width = 30, Height = 30, CornerRadius = new CornerRadius(4), ClipToBounds = true, Margin = new Thickness(0, 0, 4, 4),
+            Background = (Brush)FindResource("Panel2"), ToolTip = (count > 1 ? $"{count}× " : "") + _data.Items.Get(id)?.Name,
+            Child = new System.Windows.Controls.Image { Source = _icons.Item(id) },
+        };
+        ChampSelectStarter.Children.Clear();
+        foreach (var g in view.Starter.GroupBy(id => id)) ChampSelectStarter.Children.Add(Icon(g.Key, g.Count()));
+        ChampSelectStarterLabel.Visibility = view.Starter.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        BuildItems.Children.Clear();
+        var build = view.Surprise && !view.Locked ? ValueList<int>.Empty : view.FullPath;
+        foreach (int id in build) BuildItems.Children.Add(Icon(id, 1));
+        BuildLabel.Visibility = build.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     /// <summary>The runes card's tag and text: whether the page comes from surprise mode, collected games or a standard page.</summary>
     private void ShowRuneOrigin(ChampSelectView view)
     {
@@ -386,7 +392,7 @@ public partial class ControlWindow : Window
         var (tag, brush, text) = view.RuneOrigin switch
         {
             RuneOrigin.Surprise => ("Surprise mode", "Accent3Brush",
-                $"From surprise build mode: these runes match your {view.RuneSource} build. Reroll it in the Surprise build mode card to change both."),
+                $"From surprise build mode: these runes match your {view.RuneSource} build. Reroll in the Items card for a new build (items and runes)."),
             RuneOrigin.Popular => ("Popular page", "Accent2Brush",
                 $"The page high-ranked players run most on {view.ChampionName}{role}: {view.RuneSource}."),
             RuneOrigin.Standard => ("Standard page", "AccentBrush",
@@ -512,26 +518,25 @@ public partial class ControlWindow : Window
 
     private void Components_Changed(object sender, RoutedEventArgs e) => Graph.ShowComponents = ComponentsBox.IsChecked == true;
 
-    private void RefreshHotkeys()
-    {
-        ToggleKeyText.Text = _settings.ToggleOverlay.ToString();
-        MoveKeyText.Text = _settings.MoveOverlay.ToString();
-        QuitKeyText.Text = _settings.Quit.ToString();
-    }
+    private void RefreshHotkeys() { } // the show / hide hotkey is in the status text
+
+    private void LockOverlay_Click(object sender, RoutedEventArgs e) => _overlay.SetMoveMode(false);
 
     private void RefreshStatus()
     {
 
         (string text, string detail, string brush) = (_overlay.MoveMode, _overlay.InGame, _overlay.UserHidden) switch
         {
-            (true, _, _) => ("Move mode", $"Drag the overlay where you want it, then press {_settings.MoveOverlay} again to lock it.", "AccentBrush"),
+            (true, _, _) => ("Moving the overlay", "Drag it where you want it, then double-click it or click Lock overlay.", "AccentBrush"),
             (_, true, false) => ("In game · overlay showing", $"Press {_settings.ToggleOverlay} to hide it.", "OkBrush"),
             (_, true, true) => ("In game · overlay hidden", $"Press {_settings.ToggleOverlay} to show it again.", "AccentBrush"),
-            _ => ("Waiting for a game", "The overlay appears on its own once you're past the loading screen.", "MutedBrush"),
+            _ => ("Waiting for a game", $"The overlay appears once you're past the loading screen ({_settings.ToggleOverlay} shows / hides it). League must run Borderless or Windowed.", "MutedBrush"),
         };
         StatusText.Text = text;
         StatusDetail.Text = detail;
         StatusDot.Fill = (Brush)FindResource(brush);
+        LockOverlayButton.Visibility = _overlay.MoveMode ? Visibility.Visible : Visibility.Collapsed;
+        ShowPanels(); // a game started or ended: "This game" switches between champion select and the live game
     }
 
     private void Settings_Click(object sender, RoutedEventArgs e)
@@ -548,6 +553,8 @@ public partial class ControlWindow : Window
         if (saved && dialog.RivalChanged) OnRivalChanged();
         if (saved) ReplacePageBox.IsChecked = _settings.RunesReplaceCurrent;
         if (saved && dialog.SurprisePicksChanged) PickRerollRequested?.Invoke();
+        if (saved && dialog.UnblockedSurprises) RefreshSurpriseBlocks(refreshHistory: true);
+        if (saved && dialog.MoveRequested) _overlay.SetMoveMode(true);
         RefreshHotkeys();
         RefreshStatus();
     }

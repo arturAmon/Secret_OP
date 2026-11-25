@@ -76,7 +76,6 @@ public partial class App : Application
         _settings = Settings.Load();
         _icons = new IconCache();
         _window = new OverlayWindow(_settings, _icons);
-        _window.QuitRequested += Shutdown;
         _window.Initialize();
 
         _control = new ControlWindow(_settings, _window, _icons);
@@ -90,7 +89,6 @@ public partial class App : Application
         _control.PickRerollRequested += () => { _pickSeed = Random.Shared.Next(); _pickSurprise = null; };
         _control.HoverRequested = async champion =>
             _champSelectState?.PickActionId is { } action ? await _lcu.HoverAsync(action, champion, _cts.Token) : "It's not your turn to pick yet.";
-        _control.UnblockAllSurprises = () => { _settings.SurpriseBlocked.Clear(); _settings.Save(); _control?.RefreshSurpriseBlocks(refreshHistory: true); };
         _control.ApplyRunes = (page, replace) => _lcu.ApplyPageAsync(page, replace, _cts.Token);
         _control.RuneBenchmarks = () => _library?.Benchmarks;
         _control.ExportBuilds = ExportBuilds;

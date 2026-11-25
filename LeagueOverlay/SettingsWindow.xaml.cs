@@ -44,7 +44,8 @@ public partial class SettingsWindow : Window
         MaxHeight = SystemParameters.WorkArea.Height - 40;
         if (Height > MaxHeight) Height = MaxHeight;
 
-        Load(settings.ToggleOverlay, settings.MoveOverlay, settings.Quit, settings.LevelWeight, settings.PollSeconds);
+        Load(settings.ToggleOverlay, settings.LevelWeight, settings.PollSeconds);
+        ShowBlocked();
 
         MyAccountText.Text = settings.MyRiotId is { } me ? $"{me}  (from the League client)" : "Not known yet: open the League client and the app picks up your account.";
         ReplaceRunesBox.IsChecked = settings.RunesReplaceCurrent;
@@ -65,7 +66,7 @@ public partial class SettingsWindow : Window
             KeyBox.IsEnabled = false;
             KeyResult.Text = "Using the key from the RIOT_API_KEY environment variable.";
         }
-        foreach (var box in new[] { ToggleBox, MoveBox, QuitBox })
+        foreach (var box in new[] { ToggleBox })
         {
             box.PreviewKeyDown += CaptureKey;
             box.GotKeyboardFocus += (_, _) => box.Text = "Press new keys…";
@@ -93,11 +94,9 @@ public partial class SettingsWindow : Window
         _preview?.Invoke(BackgroundSlider.Value / 100, OverlaySlider.Value / 100);
     }
 
-    private void Load(Hotkey toggle, Hotkey move, Hotkey quit, int levelWeight, double pollSeconds)
+    private void Load(Hotkey toggle, int levelWeight, double pollSeconds)
     {
         _keys[ToggleBox] = toggle;
-        _keys[MoveBox] = move;
-        _keys[QuitBox] = quit;
         foreach (var (box, key) in _keys) box.Text = box.IsKeyboardFocused ? "Press new keys…" : key.ToString();
         LevelWeightBox.Text = levelWeight.ToString(CultureInfo.CurrentCulture);
         PollBox.Text = pollSeconds.ToString(CultureInfo.CurrentCulture);
@@ -122,7 +121,7 @@ public partial class SettingsWindow : Window
 
     private string? ValidateKeys(bool checkAvailability)
     {
-        var names = new Dictionary<TextBox, string> { [ToggleBox] = "Show / hide", [MoveBox] = "Move overlay", [QuitBox] = "Stop app" };
+        var names = new Dictionary<TextBox, string> { [ToggleBox] = "Show / hide" };
         foreach (var (box, key) in _keys)
             if (!key.IsSafe) return $"{names[box]}: {key} would fire while typing. Add Ctrl or Alt, or use F1–F24.";
         var duplicate = _keys.GroupBy(k => k.Value).FirstOrDefault(g => g.Count() > 1);
@@ -162,8 +161,7 @@ public partial class SettingsWindow : Window
         TryParseNumber(LevelWeightBox.Text, out weight);
         TryParseNumber(PollBox.Text, out poll);
         _settings.ToggleOverlayHotkey = _keys[ToggleBox].ToString();
-        _settings.MoveOverlayHotkey = _keys[MoveBox].ToString();
-        _settings.QuitHotkey = _keys[QuitBox].ToString();
+        if (UnblockedSurprises) _settings.SurpriseBlocked.Clear();
         _settings.LevelWeight = (int)Math.Round(weight);
         _settings.PollSeconds = poll;
         RivalChanged = !LeagueOverlay.Core.History.RiotIds.Same(rival, _settings.Rival ?? "") && !(rival.Length == 0 && _settings.Rival is null);
@@ -188,6 +186,42 @@ public partial class SettingsWindow : Window
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+
+    /// <summary>Saved and closed so the overlay can be dragged (a dialog blocks the other windows while it's open).</summary>
+    public bool MoveRequested { get; private set; }
+    /// <summary>The surprise builds you turned off ("don't suggest again") were allowed again.</summary>
+    public bool UnblockedSurprises { get; private set; }
+
+    private void MoveOverlay_Click(object sender, RoutedEventArgs e)
+    {
+        MoveRequested = true;
+        Save_Click(sender, e);
+        if (DialogResult != true) MoveRequested = false; // something to fix first: the page with the problem is open
+    }
+
+    private void Unblock_Click(object sender, RoutedEventArgs e)
+    {
+        UnblockedSurprises = true; // applied on Save
+        ShowBlocked();
+    }
+
+    /// <summary>Which champion + style combinations won't be suggested again.</summary>
+    private void ShowBlocked()
+    {
+        IReadOnlyList<string> keys = UnblockedSurprises ? [] : _settings.SurpriseBlocked;
+        UnblockButton.Visibility = keys.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        BlockedText.Text = UnblockedSurprises ? "All allowed again once you save."
+            : keys.Count == 0 ? "None. Use \"Don't suggest this again\" on a surprise build to turn one off."
+            : string.Join(", ", keys.Take(6).Select(Describe)) + (keys.Count > 6 ? $" and {keys.Count - 6} more" : "") + ".";
+
+        static string Describe(string key)
+        {
+            var parts = key.Split(':');
+            string style = parts.Length > 1 ? LeagueOverlay.Core.Analysis.SurpriseBuilder.Themes.FirstOrDefault(t => t.Key == parts[1])?.Label ?? parts[1] : "";
+            string champ = parts[0].Length > 0 ? char.ToUpperInvariant(parts[0][0]) + parts[0][1..] : parts[0]; // saved lower-case
+            return $"{style} {champ}";
+        }
+    }
 
     private void ExportBuilds_Click(object sender, RoutedEventArgs e)
     {
@@ -271,8 +305,7 @@ public partial class SettingsWindow : Window
 
     private void Reset_Click(object sender, RoutedEventArgs e)
     {
-        Load(Hotkey.Parse(Settings.DefaultToggleHotkey, default), Hotkey.Parse(Settings.DefaultMoveHotkey, default),
-             Hotkey.Parse(Settings.DefaultQuitHotkey, default), 350, 2);
+        Load(Hotkey.Parse(Settings.DefaultToggleHotkey, default), 350, 2);
         SetOpacitySliders(Settings.DefaultBackgroundOpacity, 1); // the slider events update the preview
         SurpriseMasteryBox.SelectedIndex = SurpriseOddsBox.SelectedIndex = SurpriseRoleBox.SelectedIndex = 0;
         SurpriseAvoidLosingBox.IsChecked = true;
