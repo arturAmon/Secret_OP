@@ -7,6 +7,7 @@ using LeagueOverlay.Core.Data;
 using LeagueOverlay.Core.History;
 using LeagueOverlay.Core.Lcu;
 using LeagueOverlay.Core.Live;
+using LeagueOverlay.Core.Diagnostics;
 
 namespace LeagueOverlay;
 
@@ -51,6 +52,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        InstallErrorHandlers();
 
         // Headless: "SecretOP.exe --export-builds <file>" writes the collected builds to a file and exits
         // (publish.ps1 uses it to put your builds into the installer). Works while the app is also running.
@@ -93,6 +95,9 @@ public partial class App : Application
         _control.RuneBenchmarks = () => _library?.Benchmarks;
         _control.ExportBuilds = ExportBuilds;
         _control.ImportBuilds = ImportBuildsAsync;
+        _control.UpdateRequested += () => _ = InstallUpdateAsync();
+        _control.CheckUpdatesNow = () => CheckForUpdateAsync(_cts.Token);
+        _control.SharedBuildsInfo = () => (SharedBuildsStatus(), _canUpload == true);
         _control.ShowHotkeyWarning(_window.ApplyHotkeys());
         _control.SaveRewards = () => SaveRewards();
         _games.Account = _settings.MyRiotId;
@@ -103,8 +108,12 @@ public partial class App : Application
         foreach (var g in saved.Where(g => g.PostGame is not { Format: >= PostGameStats.CurrentFormat })) FetchMatchHistory(g);
         _control.Show();
 
+        ShowSharedBuilds();
+
         _ = RunAsync(_cts.Token);
         _ = RunChampSelectAsync(_cts.Token);
+        _ = RunSharedBuildsAsync(_cts.Token);
+        _ = RunUpdateChecksAsync(_cts.Token);
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -149,11 +158,12 @@ public partial class App : Application
                         _data = data;
                         ImportBundledBuilds();
                         RestartBuilds();
+                        _ = LoadPatchChangesAsync(data);
                         ImportRecentGames(userAsked: false);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        Debug.WriteLine($"Data Dragon load failed: {ex.Message}");
+                        Log.Warn($"Data Dragon load failed: {ex.Message}");
                         _control?.SetDataStatus("Item data unavailable (offline?). Retrying every minute; gold and lanes still work.");
                         nextDataAttempt = DateTime.UtcNow.AddMinutes(1); // gold still works via client prices meanwhile
                     }
@@ -206,7 +216,7 @@ public partial class App : Application
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Overlay loop error: {ex}"); // keep running; next poll may succeed
+                Log.Error("Overlay loop error", ex); // keep running; next poll may succeed
             }
 
             try { await Task.Delay(TimeSpan.FromSeconds(game is null ? _settings.IdlePollSeconds : _settings.PollSeconds), ct); }
@@ -270,7 +280,7 @@ public partial class App : Application
                 else ResetPickSession();
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
-            catch (Exception ex) { Debug.WriteLine($"Champion select read failed: {ex.Message}"); }
+            catch (Exception ex) { Log.Warn($"Champion select read failed: {ex.Message}"); }
 
             if (!shown || !Equals(view, last) || !Equals(picks, lastPicks))
             {
@@ -441,7 +451,7 @@ public partial class App : Application
     private void SaveRewards()
     {
         try { _rewardStore.Save(_settings.MyRiotId, _rewards); }
-        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException) { Debug.WriteLine($"Saving rewards failed: {e.Message}"); }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException) { Log.Warn($"Saving rewards failed: {e.Message}"); }
     }
 
     /// <summary>Counts a saved game toward the surprise rewards and tells the window about anything it unlocked.</summary>
@@ -461,7 +471,7 @@ public partial class App : Application
             record = record with { Surprise = SurpriseRecord.From(plan) };
         _gameSurprise = null;
         try { _games.Save(record); }
-        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException) { Debug.WriteLine($"Saving game failed: {e.Message}"); return; }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException) { Log.Warn($"Saving game failed: {e.Message}"); return; }
         CountRewards(record);
         if (show) _control?.ShowGames(_games.LoadRecent(), openNewest: true);
         _control?.RecordRivalry(record);
@@ -555,7 +565,7 @@ public partial class App : Application
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
                 catch (Exception e) when (e is HttpRequestException or System.IO.IOException or System.Text.Json.JsonException or KeyNotFoundException or TaskCanceledException)
                 {
-                    Debug.WriteLine($"Match history lookup failed: {e.Message}"); // try again next minute
+                    Log.Warn($"Match history lookup failed: {e.Message}"); // try again next minute
                 }
             }
         });
@@ -584,6 +594,7 @@ public partial class App : Application
         BuildStore.Prune(root, region.Platform, previous is null ? [patch] : [patch, previous]);
         var library = new BuildLibrary(BuildStore.Load(root, region.Platform, patch),
             previous is null ? null : BuildStore.Load(root, region.Platform, previous));
+        library.Changes = _patchChanges; // last patch's games only for what this patch didn't change
         _library = library; // games already collected are used even without a key
 
         if (_settings.ApiKey is not { } key)
@@ -602,7 +613,7 @@ public partial class App : Application
         _crawlTask = Task.Run(async () =>
         {
             try { await crawler.RunAsync(cts.Token); }
-            catch (Exception ex) { Debug.WriteLine($"Build crawler stopped: {ex}"); }
+            catch (Exception ex) { Log.Error("Build crawler stopped", ex); }
             finally { client.Dispose(); }
         });
     }
@@ -614,13 +625,13 @@ public partial class App : Application
         {
             foreach (var file in System.IO.Directory.GetFiles(AppContext.BaseDirectory, "*" + BuildShare.Extension))
             {
-                var added = BuildShare.Import(BuildStore.DefaultRoot, file);
-                Debug.WriteLine($"Bundled builds {System.IO.Path.GetFileName(file)}: {added}");
+                var added = BuildShare.Import(BuildStore.DefaultRoot, file, AcceptPatch(), ValidBuild());
+                Log.Info($"Bundled builds {System.IO.Path.GetFileName(file)}: {added}");
             }
         }
         catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException or System.Text.Json.JsonException or System.IO.InvalidDataException)
         {
-            Debug.WriteLine($"Bundled builds not imported: {e.Message}");
+            Log.Warn($"Bundled builds not imported: {e.Message}");
         }
     }
 
@@ -638,20 +649,9 @@ public partial class App : Application
 
     private async Task<string> ImportBuildsAsync(string path)
     {
-        // Stop collecting while merging, so the collector doesn't write its older copy over the merged file.
-        _crawlCts?.Cancel();
-        if (_crawlTask is { } running) try { await running; } catch { }
-        string message;
-        try
-        {
-            var summary = await Task.Run(() => BuildShare.Import(BuildStore.DefaultRoot, path));
-            message = summary.Games == 0 ? "Nothing new: you already have all of these games." : $"Imported {summary}.";
-        }
-        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException or System.Text.Json.JsonException or System.IO.InvalidDataException)
-        {
-            message = $"Couldn't import that file: {e.Message}";
-        }
-        RestartBuilds(); // reload from disk and carry on collecting
-        return message;
+        var (summary, error) = await ImportBuildsFileAsync(path);
+        return error is not null ? $"Couldn't import that file: {error}"
+            : summary is not { Games: > 0 } ? "Nothing new: you already have these games (or they're for older patches)."
+            : $"Imported {summary}.";
     }
 }

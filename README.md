@@ -37,6 +37,12 @@ A small Windows companion app for League of Legends: an in-game overlay plus a w
 - History shows how each surprise game went
 - The Collection tab counts your surprise games; achievements (your first surprise game, a surprise AP or tank build, 10 games...) unlock new looks for your share image: backgrounds, frames like rivets or gold, accent colours and badges
 
+**Keeping up to date**
+- The app tells you when a new version is out; click "Update" at the top of the window and it installs itself and restarts
+- Popular builds are shared through this repository's "builds" release, so the app has builds even without your own API key
+- On a new patch, last patch's games still count for champions, items and runes the patch didn't change
+- Something went wrong? Settings > General > Open log folder, and send the newest file
+
 ## Optional: better item suggestions
 
 With a free Riot API key ([developer.riotgames.com](https://developer.riotgames.com)), item suggestions follow what Challenger and Grandmaster players build. History also gets match reports and your recent games. Paste the key in **Settings**. Development keys expire after 24 hours, so paste a fresh one when the app says so. Everyone should use their own key.

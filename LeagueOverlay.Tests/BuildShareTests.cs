@@ -13,17 +13,17 @@ public class BuildShareTests
         try
         {
             var a = BuildStore.Load(mine, "EUW1", "16.23");
-            a.Add("EUW1_1", Game(100)); a.Add("EUW1_2", Game(200));
+            a.Add("EUW1_7000000001", Game(100)); a.Add("EUW1_7000000002", Game(200));
             a.Save();
             var b = BuildStore.Load(mine, "EUW1", "16.22");
-            b.Add("EUW1_0", Game(300));
+            b.Add("EUW1_7000000000", Game(300));
             b.Save();
 
             var exported = BuildShare.Export(mine, file);
             Assert.Equal(3, exported.Games);
 
             var theirs = BuildStore.Load(friend, "EUW1", "16.23");
-            theirs.Add("EUW1_2", Game(200)); // they already have one of the games
+            theirs.Add("EUW1_7000000002", Game(200)); // they already have one of the games
             theirs.Save();
 
             var first = BuildShare.Import(friend, file);

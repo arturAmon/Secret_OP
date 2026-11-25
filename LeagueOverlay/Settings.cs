@@ -41,6 +41,20 @@ public sealed class Settings
     /// <summary>Surprise build mode: unexpected builds instead of the usual suggestions.</summary>
     public bool SurpriseMode { get; set; }
 
+    /// <summary>Look for a newer version on GitHub at startup and every few hours.</summary>
+    public bool CheckForUpdates { get; set; } = true;
+
+    // Popular builds shared through GitHub (see SharedBuilds): download them / upload yours (only with gh push access).
+    public bool SharedBuildsDownload { get; set; } = true;
+    public bool SharedBuildsUpload { get; set; } = true;
+    /// <summary>The sha256 of the shared file last imported or uploaded, so the same file isn't imported again.</summary>
+    public string? SharedBuildsDigest { get; set; }
+    public DateTime? SharedBuildsDownloadedAt { get; set; }
+    public int SharedBuildsDownloadedGames { get; set; }
+    public DateTime? SharedBuildsUploadedAt { get; set; }
+    /// <summary>How many games the saved builds had at the last upload (the next one waits for enough new ones).</summary>
+    public int SharedBuildsUploadedCount { get; set; }
+
     /// <summary>Champion suggestions in champion select: "Off", "Best" (fits the team) or "Surprise" (low mastery, random).</summary>
     public string ChampionPickMode { get; set; } = "Best";
     [JsonIgnore] public PickModeSetting PickMode => Enum.TryParse<PickModeSetting>(ChampionPickMode, out var m) ? m : PickModeSetting.Best;

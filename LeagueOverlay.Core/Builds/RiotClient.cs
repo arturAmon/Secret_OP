@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
+using LeagueOverlay.Core.Diagnostics;
 
 namespace LeagueOverlay.Core.Builds;
 
@@ -113,7 +114,7 @@ public sealed class RiotClient : IDisposable
                     throw new RiotKeyException(response.StatusCode);
                 case HttpStatusCode.TooManyRequests:
                     var wait = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(10);
-                    Debug.WriteLine($"Riot API 429 on {method}; waiting {wait.TotalSeconds}s");
+                    Log.Info($"Riot API 429 on {method}; waiting {wait.TotalSeconds}s");
                     await Task.Delay(wait, ct);
                     continue;
                 case >= HttpStatusCode.InternalServerError when attempt < 3:

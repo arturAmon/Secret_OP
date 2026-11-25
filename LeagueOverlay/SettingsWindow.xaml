@@ -89,6 +89,17 @@
                         <TextBox x:Name="LevelWeightBox" Grid.Row="0" Grid.Column="1" Margin="0,3"/>
                         <TextBox x:Name="PollBox" Grid.Row="1" Grid.Column="1" Margin="0,11,0,3"/>
                     </Grid>
+
+                    <TextBlock Text="Updates" Style="{StaticResource SectionTitle}" Margin="0,18,0,2"/>
+                    <CheckBox x:Name="UpdatesBox" Margin="0,4,0,0" Content="Check for new versions (on GitHub, at start and every few hours)"/>
+                    <DockPanel Margin="0,8,0,0">
+                        <Button x:Name="CheckUpdatesButton" DockPanel.Dock="Left" Content="Check now" Click="CheckUpdates_Click"/>
+                        <TextBlock x:Name="UpdatesResult" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
+                    </DockPanel>
+
+                    <TextBlock Text="Troubleshooting" Style="{StaticResource SectionTitle}" Margin="0,18,0,2"/>
+                    <TextBlock Style="{StaticResource Hint}" Text="When something goes wrong, the details are saved in the app's log. Send the newest file along when you report a problem."/>
+                    <Button Content="Open log folder" HorizontalAlignment="Left" Click="OpenLogs_Click"/>
                 </StackPanel>
             </ScrollViewer>
 
@@ -247,6 +258,14 @@
                         <Button x:Name="ImportBuildsButton" DockPanel.Dock="Left" Content="Import builds…" Margin="8,0,0,0" Click="ImportBuilds_Click"/>
                         <TextBlock x:Name="BuildsShareResult" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
                     </DockPanel>
+
+                    <TextBlock Text="Shared builds on GitHub" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Games collected by the app's owner are shared on the project's GitHub page (public match data only). Downloading them gives you popular builds without collecting everything yourself."/>
+                    <CheckBox x:Name="SharedDownloadBox" Content="Download shared builds"/>
+                    <CheckBox x:Name="SharedUploadBox" Margin="0,6,0,0" Visibility="Collapsed"
+                              Content="Upload the games I collect (this PC can publish to the GitHub project)"/>
+                    <TextBlock x:Name="SharedStatusText" Style="{StaticResource Hint}" Margin="0,8,0,0"/>
                 </StackPanel>
             </ScrollViewer>
         </Grid>

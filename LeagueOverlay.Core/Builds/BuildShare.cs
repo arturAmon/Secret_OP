@@ -42,23 +42,44 @@ public static class BuildShare
         return new Summary(stores.Sum(s => s.Matches.Count), stores.Select(s => $"{s.Platform} {s.Patch}").ToList());
     }
 
-    /// <summary>Merges a shared file into the saved builds. Returns the games that were new.</summary>
-    public static Summary Import(string root, string path)
+    /// <summary>Largest builds file accepted (compressed) and how big it may get once decompressed.</summary>
+    public const long MaxFileBytes = 20L * 1024 * 1024, MaxJsonBytes = 200L * 1024 * 1024;
+
+    private static readonly System.Text.RegularExpressions.Regex MatchIdPattern = new(@"^[A-Z0-9]{2,6}_\d{5,13}$");
+
+    /// <summary>
+    /// Merges a shared file into the saved builds. Returns the games that were new. Files can come from friends or the
+    /// internet, so: size limits (also once decompressed), match ids must look like Riot's ("EUW1_7234567890"), and
+    /// optionally only some regions / patches (<paramref name="accept"/>) and only builds that make sense with this
+    /// patch's data (<paramref name="validate"/>: known champion and items). A match with an invalid build is skipped whole.
+    /// </summary>
+    public static Summary Import(string root, string path, Func<string, string, bool>? accept = null, Func<BuildRecord, bool>? validate = null)
     {
         SharedFile? shared;
         using (var input = File.OpenRead(path))
-        using (var gzip = new GZipStream(input, CompressionMode.Decompress))
-            shared = JsonSerializer.Deserialize<SharedFile>(gzip);
+        {
+            if (input.Length > MaxFileBytes) throw new InvalidDataException($"The builds file is too big ({input.Length / 1024 / 1024} MB).");
+            using var gzip = new GZipStream(input, CompressionMode.Decompress);
+            using var limited = new LimitedStream(gzip, MaxJsonBytes);
+            shared = JsonSerializer.Deserialize<SharedFile>(limited);
+        }
         if (shared is null || shared.Format > Format) throw new InvalidDataException("This builds file is from a newer version of the app.");
 
         int added = 0;
         var patches = new List<string>();
-        foreach (var s in shared.Stores)
+        foreach (var s in shared.Stores ?? [])
         {
-            if (s.Matches.Count != s.Builds.Count || !IsSafeName(s.Platform) || !IsSafeName(s.Patch)) continue;
+            if (s?.Matches is null || s.Builds is null || s.Matches.Count != s.Builds.Count || !IsSafeName(s.Platform) || !IsSafeName(s.Patch)) continue;
+            if (accept is not null && !accept(s.Platform, s.Patch)) continue;
             var store = BuildStore.Load(root, s.Platform, s.Patch);
             int before = store.MatchCount;
-            for (int i = 0; i < s.Matches.Count; i++) store.Add(s.Matches[i], s.Builds[i]);
+            for (int i = 0; i < s.Matches.Count; i++)
+            {
+                var builds = s.Builds[i];
+                if (s.Matches[i] is not { } id || !MatchIdPattern.IsMatch(id) || builds is not { Length: > 0 and <= 10 }) continue;
+                if (builds.Any(b => b?.Items is null || b.Items.Length > 12 || (validate is not null && !validate(b)))) continue;
+                store.Add(id, builds);
+            }
             int n = store.MatchCount - before;
             if (n == 0) continue;
             store.Save();
@@ -66,6 +87,28 @@ public static class BuildShare
             patches.Add($"{s.Platform} {s.Patch}");
         }
         return new Summary(added, patches);
+    }
+
+    /// <summary>Reads at most <c>limit</c> bytes from the inner stream, then fails (a tiny gzip file can expand enormously).</summary>
+    private sealed class LimitedStream(Stream inner, long limit) : Stream
+    {
+        private long _read;
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int n = inner.Read(buffer, offset, count);
+            _read += n;
+            if (_read > limit) throw new InvalidDataException("The builds file is too big once unpacked.");
+            return n;
+        }
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => _read; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     // Region and patch become folder and file names: only allow what Riot uses ("EUW1", "16.23").

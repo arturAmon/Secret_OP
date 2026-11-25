@@ -299,7 +299,30 @@ public sealed class BuildLibrary
         Previous = previous;
     }
 
-    private int Version => Current.Version * 100_000 + (Previous?.Version ?? 0);
+    private int _changesVersion;
+    private PatchChanges? _changes;
+
+    /// <summary>
+    /// What the current patch changed (null = unknown: all of the previous patch is used). Previous-patch games of a
+    /// changed champion aren't used at all, and its games with a changed item (or rune page with a changed rune) aren't
+    /// used for builds (rune pages), so the first days of a patch still have builds for everything that stayed the same.
+    /// </summary>
+    public PatchChanges? Changes
+    {
+        get { lock (_lock) return _changes; }
+        set { lock (_lock) { _changes = value; _changesVersion++; } }
+    }
+
+    private int Version => Current.Version * 100_000 + (Previous?.Version ?? 0) + _changesVersion * 7_919;
+
+    /// <summary>Previous-patch builds still valid for this patch: the champion didn't change.</summary>
+    private IEnumerable<BuildRecord> PreviousBuilds =>
+        Previous is null ? [] : _changes is not { } c ? Previous.Builds : Previous.Builds.Where(b => !c.Champions.Contains(b.Champion));
+
+    private bool ItemsUnchanged(BuildRecord b) =>
+        _changes is not { } c || (!b.Items.Any(c.Items.Contains) && !c.Items.Contains(b.Boots));
+
+    private bool RunesUnchanged(BuildRecord b) => _changes is not { } c || b.Runes is not { } r || !r.Any(c.Runes.Contains);
 
     /// <summary>Builds for a champion (numeric key) in a role ("BOTTOM", ...). Falls back to all roles, then to the previous patch.</summary>
     public ChampionBuild? For(int championKey, string? position)
@@ -325,7 +348,7 @@ public sealed class BuildLibrary
             int version = Version;
             if (_runeCache.TryGetValue((championKey, position), out var hit) && hit.Version == version) return hit.Page;
             string? role = string.IsNullOrEmpty(position) ? null : position.ToUpperInvariant();
-            var page = Pick(championKey, role, b => b.HasRunes, RunePage.From);
+            var page = Pick(championKey, role, b => b.HasRunes, RunePage.From, RunesUnchanged);
             _runeCache[(championKey, position)] = (version, page);
             return page;
         }
@@ -342,9 +365,7 @@ public sealed class BuildLibrary
             {
                 int version = Version;
                 if (_matchups is { } m && m.Version == version) return m.Stats;
-                var groups = Current.ByMatch().Select(g => g.Builds);
-                if (Previous is not null) groups = groups.Concat(Previous.ByMatch().Select(g => g.Builds));
-                var stats = MatchupStats.From(groups);
+                var stats = MatchupStats.From(Current.ByMatch().Select(g => g.Builds), Previous?.ByMatch().Select(g => g.Builds), _changes?.Champions);
                 _matchups = (version, stats);
                 return stats;
             }
@@ -360,19 +381,21 @@ public sealed class BuildLibrary
             {
                 int version = Version;
                 if (_bench is { } b && b.Version == version) return b.Bench;
-                var bench = RuneBenchmarks.From(Previous is null ? Current.Builds : Current.Builds.Concat(Previous.Builds));
+                var bench = RuneBenchmarks.From(Current.Builds.Concat(PreviousBuilds));
                 _bench = (version, bench);
                 return bench;
             }
         }
     }
 
-    private ChampionBuild? Compute(int champ, string? position) => Pick(champ, position, _ => true, ChampionBuild.From);
+    private ChampionBuild? Compute(int champ, string? position) => Pick(champ, position, _ => true, ChampionBuild.From, ItemsUnchanged);
 
-    private T? Pick<T>(int champ, string? position, Func<BuildRecord, bool> usable, Func<IReadOnlyList<BuildRecord>, string?, string, T?> make) where T : class
+    /// <param name="stillValid">Which previous-patch builds still apply (no changed items / runes in them).</param>
+    private T? Pick<T>(int champ, string? position, Func<BuildRecord, bool> usable, Func<IReadOnlyList<BuildRecord>, string?, string, T?> make,
+        Func<BuildRecord, bool> stillValid) where T : class
     {
         var current = Current.Builds.Where(b => b.Champion == champ && usable(b)).ToList();
-        var both = Previous is null ? current : current.Concat(Previous.Builds.Where(b => b.Champion == champ && usable(b))).ToList();
+        var both = Previous is null ? current : current.Concat(PreviousBuilds.Where(b => b.Champion == champ && usable(b) && stillValid(b))).ToList();
         string bothPatch = Previous is null ? Current.Patch : $"{Current.Patch} + {Previous.Patch}";
 
         // The role matters more than the patch (support Ashe builds nothing like ADC Ashe), so try both patches

@@ -35,22 +35,32 @@ public sealed class MatchupStats
     public IEnumerable<int> PlayedIn(string position, int minGames) =>
         _role.Where(x => x.Key.Item2 == position && x.Value.Games >= minGames).Select(x => x.Key.Item1);
 
-    public static MatchupStats From(IEnumerable<BuildRecord[]> matches)
+    /// <param name="older">Games from the previous patch: counted too, except anything involving a champion in <paramref name="ignore"/> (changed this patch).</param>
+    public static MatchupStats From(IEnumerable<BuildRecord[]> matches, IEnumerable<BuildRecord[]>? older = null, IReadOnlySet<int>? ignore = null)
     {
         var s = new MatchupStats();
-        foreach (var m in matches)
+        foreach (var m in matches) s.Count(m, null);
+        foreach (var m in older ?? []) s.Count(m, ignore);
+        return s;
+    }
+
+    private void Count(BuildRecord[] m, IReadOnlySet<int>? ignore)
+    {
+        var s = this;
         {
-            if (m.Length != 10) continue;
+            if (m.Length != 10) return;
             s.Matches++;
             for (int i = 0; i < 10; i++)
             {
                 var me = m[i];
+                if (ignore?.Contains(me.Champion) == true) continue;
                 bool myTeam(int j) => (j < 5) == (i < 5);
                 if (me.Position.Length > 0) s._role[(me.Champion, me.Position)] = s._role.GetValueOrDefault((me.Champion, me.Position)).Add(me.Win);
                 for (int j = 0; j < 10; j++)
                 {
                     if (j == i) continue;
                     var other = m[j];
+                    if (ignore?.Contains(other.Champion) == true) continue;
                     if (myTeam(j))
                         s._with[(me.Champion, other.Champion)] = s._with.GetValueOrDefault((me.Champion, other.Champion)).Add(me.Win);
                     else
@@ -62,6 +72,5 @@ public sealed class MatchupStats
                 }
             }
         }
-        return s;
     }
 }

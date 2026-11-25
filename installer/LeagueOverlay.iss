@@ -60,6 +60,8 @@ Name: "{autodesktop}\Secret OP"; Filename: "{app}\SecretOP.exe"; Tasks: desktopi
 [Run]
 Filename: "{app}\README.txt"; Description: "Show the quick guide"; Flags: postinstall shellexec skipifsilent unchecked
 Filename: "{app}\SecretOP.exe"; Description: "Start Secret OP now"; Flags: nowait postinstall skipifsilent
+; In-app updates run this installer silently: start the app again afterwards.
+Filename: "{app}\SecretOP.exe"; Flags: nowait; Check: WizardSilent
 
 [Code]
 // Settings, saved games and collected builds live in %LOCALAPPDATA%\LeagueOverlay (the app's name before it was

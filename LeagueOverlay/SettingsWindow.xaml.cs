@@ -45,6 +45,15 @@ public partial class SettingsWindow : Window
         if (Height > MaxHeight) Height = MaxHeight;
 
         Load(settings.ToggleOverlay, settings.LevelWeight, settings.PollSeconds);
+        UpdatesBox.IsChecked = settings.CheckForUpdates;
+        SharedDownloadBox.IsChecked = settings.SharedBuildsDownload;
+        SharedUploadBox.IsChecked = settings.SharedBuildsUpload;
+        Loaded += (_, _) =>
+        {
+            SharedUploadBox.Visibility = CanUploadSharedBuilds ? Visibility.Visible : Visibility.Collapsed;
+            SharedStatusText.Text = SharedBuildsStatus ?? "Nothing downloaded yet.";
+            CheckUpdatesButton.IsEnabled = CheckUpdatesNow is not null;
+        };
         ShowBlocked();
 
         MyAccountText.Text = settings.MyRiotId is { } me ? $"{me}  (from the League client)" : "Not known yet: open the League client and the app picks up your account.";
@@ -162,6 +171,9 @@ public partial class SettingsWindow : Window
         TryParseNumber(PollBox.Text, out poll);
         _settings.ToggleOverlayHotkey = _keys[ToggleBox].ToString();
         if (UnblockedSurprises) _settings.SurpriseBlocked.Clear();
+        _settings.CheckForUpdates = UpdatesBox.IsChecked == true;
+        _settings.SharedBuildsDownload = SharedDownloadBox.IsChecked == true;
+        if (CanUploadSharedBuilds) _settings.SharedBuildsUpload = SharedUploadBox.IsChecked == true;
         _settings.LevelWeight = (int)Math.Round(weight);
         _settings.PollSeconds = poll;
         RivalChanged = !LeagueOverlay.Core.History.RiotIds.Same(rival, _settings.Rival ?? "") && !(rival.Length == 0 && _settings.Rival is null);
@@ -186,6 +198,24 @@ public partial class SettingsWindow : Window
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+
+    /// <summary>Checks GitHub for a new version (from the app); null disables "Check now".</summary>
+    public Func<Task<string>>? CheckUpdatesNow { get; init; }
+    /// <summary>Last download / upload of the builds shared on GitHub.</summary>
+    public string? SharedBuildsStatus { get; init; }
+    /// <summary>This PC can upload to GitHub (gh logged in with push access): shows the upload option.</summary>
+    public bool CanUploadSharedBuilds { get; init; }
+
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        if (CheckUpdatesNow is null) return;
+        CheckUpdatesButton.IsEnabled = false;
+        UpdatesResult.Text = "Checking…";
+        try { UpdatesResult.Text = await CheckUpdatesNow(); }
+        finally { CheckUpdatesButton.IsEnabled = true; }
+    }
+
+    private void OpenLogs_Click(object sender, RoutedEventArgs e) => App.OpenLogFolder();
 
     /// <summary>Saved and closed so the overlay can be dragged (a dialog blocks the other windows while it's open).</summary>
     public bool MoveRequested { get; private set; }

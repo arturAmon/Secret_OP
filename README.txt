@@ -71,10 +71,22 @@ get a new one from the same page and paste it in Settings. Games already collect
 keep working without a key. Don't share your key: everyone should use their own.
 
 
+Updates
+-------
+When a new version is out, an "Update to x.y.z" button appears at the top of the window.
+Click it (not during a game): the app downloads the new version, installs it and starts
+again by itself. You can turn the check off in Settings > General.
+
+If something goes wrong, Settings > General > Open log folder shows the app's log files;
+send the newest one along when you report a problem.
+
+
 Sharing builds
 --------------
-The installer comes with the popular builds collected by the friend who sent it, so the
-better suggestions work straight away. To pass on builds later: Settings > Export builds,
+The app downloads the popular builds shared on the project's GitHub page by itself, and the
+installer comes with the builds collected by the friend who sent it, so the better
+suggestions work straight away. On a new patch, last patch's games keep counting for every
+champion and item the patch didn't change. To pass on builds later: Settings > Export builds,
 send the file, and the other person uses Settings > Import builds. Games they already
 have are skipped.
 

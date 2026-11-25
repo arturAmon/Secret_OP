@@ -17,6 +17,8 @@
         <DockPanel Grid.Row="0" Margin="0,0,0,12" LastChildFill="True">
             <Button x:Name="SettingsButton" DockPanel.Dock="Right" Content="⚙  Settings" VerticalAlignment="Center" Margin="18,0,0,0"
                     Click="Settings_Click" AutomationProperties.Name="Settings" ToolTip="Hotkeys, overlay look, account, champion select options and builds data"/>
+            <Button x:Name="UpdateButton" DockPanel.Dock="Right" Style="{StaticResource AccentButton}" VerticalAlignment="Center" Margin="18,0,0,0"
+                    Click="Update_Click" Visibility="Collapsed" AutomationProperties.Name="Update"/>
             <Button x:Name="LockOverlayButton" DockPanel.Dock="Right" Content="Lock overlay" Style="{StaticResource AccentButton}" VerticalAlignment="Center"
                     Margin="18,0,0,0" Click="LockOverlay_Click" Visibility="Collapsed" ToolTip="Keep the overlay where it is now"/>
             <StackPanel DockPanel.Dock="Right" VerticalAlignment="Center" MaxWidth="380">
@@ -96,7 +98,7 @@
                 <TextBlock x:Name="ChampSelectIdle" Margin="0,4,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
                            Text="Not in champion select. Queue up in the League client: champion suggestions and runes for your pick show here."/>
                 <!-- Champion suggestions (before you lock in) -->
-                <DockPanel Margin="0,8,0,0">
+                <DockPanel x:Name="PickModeRow" Margin="0,8,0,0">
                     <ComboBox x:Name="PickModeBox" DockPanel.Dock="Right" Width="150" SelectionChanged="PickMode_Changed"
                               ToolTip="Best for the team: fits your team and the enemy draft. Surprise me: a random champion you've barely played.">
                         <ComboBoxItem Content="Off" Tag="Off"/>
@@ -178,6 +180,8 @@
                            Text="Add your Riot API key in Settings to base item suggestions on what high-ranked players build."/>
                 <ProgressBar x:Name="BuildProgress" Margin="0,8,0,0" Maximum="1" Visibility="Collapsed"/>
                 <TextBlock x:Name="ChampionBuildText" Margin="0,8,0,0" FontSize="12" TextWrapping="Wrap" Visibility="Collapsed"/>
+                <TextBlock x:Name="PatchChangesText" Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Visibility="Collapsed"/>
+                <TextBlock x:Name="SharedBuildsText" Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Visibility="Collapsed"/>
                 <TextBlock x:Name="DataStatus" Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Text="Loading item data…"/>
             </StackPanel>
         </Border>

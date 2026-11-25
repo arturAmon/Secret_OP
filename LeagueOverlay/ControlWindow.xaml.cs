@@ -318,7 +318,8 @@ public partial class ControlWindow : Window
     /// </summary>
     public void ShowChampSelect(ChampSelectView? view, PickAdvice? picks = null, bool inChampSelect = false)
     {
-        if (inChampSelect && !_inChampSelect) ShowLiveTab(); // champion select started: suggestions and runes are there
+        if (inChampSelect && !_inChampSelect) ShowLiveTab();
+        PickModeRow.Visibility = view is { Locked: true } ? Visibility.Collapsed : Visibility.Visible; // nothing to pick any more // champion select started: suggestions and runes are there
         _inChampSelect = inChampSelect;
         bool changed = view?.ChampionId != _champSelect?.ChampionId || view?.Locked != _champSelect?.Locked || !Equals(view?.Runes, _champSelect?.Runes);
         _champSelect = view;
@@ -383,6 +384,68 @@ public partial class ControlWindow : Window
         var build = view.Surprise && !view.Locked ? ValueList<int>.Empty : view.FullPath;
         foreach (int id in build) BuildItems.Children.Add(Icon(id, 1));
         BuildLabel.Visibility = build.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // ---- updates, patch changes, shared builds ----
+
+    public event Action? UpdateRequested;
+    /// <summary>Checks GitHub for a new version now (Settings' "Check now"); returns what to show.</summary>
+    public Func<Task<string>>? CheckUpdatesNow { get; set; }
+    /// <summary>The shared builds status line and whether this PC can upload (for Settings).</summary>
+    public Func<(string? Status, bool CanUpload)>? SharedBuildsInfo { get; set; }
+
+    private Core.Updates.UpdateInfo? _update;
+    private bool _updateInstalls;
+
+    /// <summary>A newer version: the header button (installs it, or opens the release page for the zip copy). Null hides it.</summary>
+    public void ShowUpdate(Core.Updates.UpdateInfo? info, bool installs)
+    {
+        _update = info;
+        _updateInstalls = installs && info?.InstallerUrl is not null;
+        UpdateButton.Visibility = info is null ? Visibility.Collapsed : Visibility.Visible;
+        if (info is null) return;
+        UpdateButton.Content = $"Update to {info.Version.ToString(3)}";
+        RefreshUpdateButton();
+    }
+
+    private void RefreshUpdateButton()
+    {
+        if (_update is null) return;
+        bool blocked = _updateInstalls && _overlay.InGame;
+        UpdateButton.IsEnabled = !blocked;
+        UpdateButton.ToolTip = blocked ? "Finish your game first: updating restarts the app."
+            : _updateInstalls ? $"Download version {_update.Version.ToString(3)}, install it and restart the app (takes a few seconds)."
+            : $"Open the download page for version {_update.Version.ToString(3)}.";
+    }
+
+    public void ShowUpdateProgress(double fraction)
+    {
+        UpdateButton.IsEnabled = false;
+        UpdateButton.Content = fraction >= 1 ? "Installing…" : $"Downloading {fraction:P0}";
+    }
+
+    public void ShowUpdateFailed(string message)
+    {
+        if (_update is null) return;
+        UpdateButton.Content = $"Update to {_update.Version.ToString(3)}";
+        RefreshUpdateButton();
+        UpdateButton.ToolTip = $"{message} Click to try again.";
+    }
+
+    private void Update_Click(object sender, RoutedEventArgs e) => UpdateRequested?.Invoke();
+
+    /// <summary>What the new patch changed, under Popular builds (null hides it).</summary>
+    public void ShowPatchChanges(string? text)
+    {
+        PatchChangesText.Text = text ?? "";
+        PatchChangesText.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>Builds shared on GitHub: last download / upload (null hides it).</summary>
+    public void ShowSharedBuilds(string? text)
+    {
+        SharedBuildsText.Text = text ?? "";
+        SharedBuildsText.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>The runes card's tag and text: whether the page comes from surprise mode, collected games or a standard page.</summary>
@@ -536,6 +599,7 @@ public partial class ControlWindow : Window
         StatusDetail.Text = detail;
         StatusDot.Fill = (Brush)FindResource(brush);
         LockOverlayButton.Visibility = _overlay.MoveMode ? Visibility.Visible : Visibility.Collapsed;
+        RefreshUpdateButton(); // no updating mid-game
         ShowPanels(); // a game started or ended: "This game" switches between champion select and the live game
     }
 
@@ -543,7 +607,11 @@ public partial class ControlWindow : Window
     {
         // Release the hotkeys while the dialog captures new ones, otherwise pressing them would trigger the old action.
         _overlay.SuspendHotkeys();
-        var dialog = new SettingsWindow(_settings, preview: (bg, all) => _overlay.ApplyAppearance(bg, all), ExportBuilds, ImportBuilds) { Owner = this };
+        var shared = SharedBuildsInfo?.Invoke();
+        var dialog = new SettingsWindow(_settings, preview: (bg, all) => _overlay.ApplyAppearance(bg, all), ExportBuilds, ImportBuilds)
+        {
+            Owner = this, CheckUpdatesNow = CheckUpdatesNow, SharedBuildsStatus = shared?.Status, CanUploadSharedBuilds = shared?.CanUpload == true,
+        };
         _overlay.SetPreview(true);
         bool saved;
         try { saved = dialog.ShowDialog() == true; }

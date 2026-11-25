@@ -111,6 +111,56 @@ public static class DataDragon
         return new StaticData(data.Version, data.Champions, data.Items, data.Runes) { Kits = await LoadKitsAsync(http, dir, ct) };
     }
 
+    /// <summary>
+    /// What this patch changed compared with the previous one (<see cref="PatchChanges"/>), cached in the version's folder.
+    /// Downloads both patches' championFull.json (a few MB each, once). Null when it can't be worked out (offline, first
+    /// patch of a season without an older version listed, ...): callers then treat nothing as changed.
+    /// </summary>
+    public static async Task<PatchChanges?> LoadChangesAsync(HttpClient http, string cacheRoot, string version, CancellationToken ct = default)
+    {
+        try
+        {
+            var dir = Path.Combine(cacheRoot, version);
+            var existing = Directory.Exists(dir) ? Directory.GetFiles(dir, "changes-from-*.json").FirstOrDefault() : null;
+            if (existing is not null && PatchChanges.FromJson(await File.ReadAllTextAsync(existing, ct)) is { } cached) return cached;
+
+            using var versions = JsonDocument.Parse(await http.GetStringAsync($"{Cdn}/api/versions.json", ct));
+            string patch = PatchOf(version);
+            string? previous = versions.RootElement.EnumerateArray().Select(v => v.GetString()).OfType<string>()
+                .SkipWhile(v => v != version).FirstOrDefault(v => PatchOf(v) != patch);
+            if (previous is null) return null;
+
+            var oldDir = Path.Combine(cacheRoot, previous);
+            Directory.CreateDirectory(dir);
+            Directory.CreateDirectory(oldDir);
+            var newChamps = await CachedAsync(http, dir, "championFull.json", $"{Cdn}/cdn/{version}/data/en_US/championFull.json", ct);
+            var oldChamps = await CachedAsync(http, oldDir, "championFull.json", $"{Cdn}/cdn/{previous}/data/en_US/championFull.json", ct);
+            var newItems = await CachedAsync(http, dir, "item.json", $"{Cdn}/cdn/{version}/data/en_US/item.json", ct);
+            var oldItems = await CachedAsync(http, oldDir, "item.json", $"{Cdn}/cdn/{previous}/data/en_US/item.json", ct);
+            string? newRunes = null, oldRunes = null;
+            try
+            {
+                newRunes = await CachedAsync(http, dir, "runesReforged.json", $"{Cdn}/cdn/{version}/data/en_US/runesReforged.json", ct);
+                oldRunes = await CachedAsync(http, oldDir, "runesReforged.json", $"{Cdn}/cdn/{previous}/data/en_US/runesReforged.json", ct);
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested) { }
+
+            var changes = PatchChanges.Compare(PatchOf(previous), patch, oldChamps, newChamps, oldItems, newItems, oldRunes, newRunes);
+            var path = Path.Combine(dir, $"changes-from-{previous}.json");
+            await File.WriteAllTextAsync(path + ".tmp", changes.ToJson(), ct);
+            File.Move(path + ".tmp", path, overwrite: true);
+            return changes;
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException or JsonException or KeyNotFoundException or InvalidOperationException
+                                  && !ct.IsCancellationRequested)
+        {
+            Diagnostics.Log.Warn($"Patch changes for {version} not worked out: {e.Message}");
+            return null;
+        }
+    }
+
+    private static string PatchOf(string version) => StaticData.PatchOf(version);
+
     public const string MerakiChampionsUrl = "https://cdn.merakianalytics.com/riot/lol/resources/latest/en-US/champions.json";
 
     /// <summary>

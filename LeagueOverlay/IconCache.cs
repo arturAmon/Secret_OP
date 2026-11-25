@@ -27,6 +27,8 @@ public sealed class IconCache
         if (version == _version) return;
         _version = version;
         _loaded.Clear();
+        // Icons asked for before the patch was known got nothing: let everyone waiting ask again (which starts the loads).
+        IconLoaded?.Invoke();
     }
 
     public ImageSource? Item(int id) => Get($"item/{id}.png");

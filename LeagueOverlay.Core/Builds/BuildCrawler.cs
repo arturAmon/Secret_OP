@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using LeagueOverlay.Core.Data;
+using LeagueOverlay.Core.Diagnostics;
 
 namespace LeagueOverlay.Core.Builds;
 
@@ -71,7 +72,7 @@ public sealed class BuildCrawler
                 catch (RiotKeyException) { Report(CrawlState.KeyRejected); return; }
                 catch (Exception e) when (e is HttpRequestException or IOException || (e is TaskCanceledException && !ct.IsCancellationRequested))
                 {
-                    Debug.WriteLine($"Build crawl interrupted: {e.Message}");
+                    Log.Warn($"Build crawl interrupted: {e.Message}");
                     Report(CrawlState.Offline);
                     await Task.Delay(TimeSpan.FromMinutes(1), ct);
                 }
@@ -127,7 +128,7 @@ public sealed class BuildCrawler
                 catch (HttpRequestException e) when (e.StatusCode == HttpStatusCode.NotFound) { notUsable.Add(id); continue; }
                 catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
                 {
-                    Debug.WriteLine($"Skipping {id}: {e.Message}"); // unexpected shape; don't let one game stop the crawl
+                    Log.Warn($"Skipping {id}: {e.Message}"); // unexpected shape; don't let one game stop the crawl
                     notUsable.Add(id);
                     continue;
                 }
@@ -157,6 +158,6 @@ public sealed class BuildCrawler
             Current.Save();
             _library.Previous?.Save();
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Debug.WriteLine($"Saving builds failed: {e.Message}"); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Warn($"Saving builds failed: {e.Message}"); }
     }
 }
