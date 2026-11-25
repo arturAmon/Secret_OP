@@ -1,3 +1,4 @@
+using LeagueOverlay.Core.Analysis;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -6,6 +7,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace LeagueOverlay;
+
+/// <summary>Champion suggestions in champion select (see Settings.ChampionPickMode).</summary>
+public enum PickModeSetting { Off, Best, Surprise }
 
 /// <summary>User settings, stored in %LOCALAPPDATA%\LeagueOverlay\settings.json (editable by hand).</summary>
 public sealed class Settings
@@ -40,6 +44,18 @@ public sealed class Settings
 
     /// <summary>Surprise build mode: unexpected builds instead of the usual suggestions.</summary>
     public bool SurpriseMode { get; set; }
+
+    /// <summary>Champion suggestions in champion select: "Off", "Best" (fits the team) or "Surprise" (low mastery, random).</summary>
+    public string ChampionPickMode { get; set; } = "Best";
+    [JsonIgnore] public PickModeSetting PickMode => Enum.TryParse<PickModeSetting>(ChampionPickMode, out var m) ? m : PickModeSetting.Best;
+
+    /// <summary>"Surprise me" champion picks: include champions you play a lot / every champion equally likely /
+    /// only champions played in your role / skip clearly losing lane matchups.</summary>
+    public bool SurprisePickAnyMastery { get; set; }
+    public bool SurprisePickEven { get; set; }
+    public bool SurprisePickOnlyMyRole { get; set; }
+    public bool SurprisePickAvoidLosingLanes { get; set; } = true;
+    [JsonIgnore] public SurprisePickOptions SurprisePicks => new(SurprisePickAnyMastery, SurprisePickEven, SurprisePickOnlyMyRole, SurprisePickAvoidLosingLanes);
 
     /// <summary>Champion + surprise style combinations not to suggest again ("jinx:ap"), see SurpriseBuilder.BlockKey.</summary>
     public List<string> SurpriseBlocked { get; set; } = new();

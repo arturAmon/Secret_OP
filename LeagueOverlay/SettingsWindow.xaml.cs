@@ -24,9 +24,8 @@ public partial class SettingsWindow : Window
     /// <summary>True after Save if the API key or region changed (popular-build collection must restart).</summary>
     public bool BuildSettingsChanged { get; private set; }
 
-    /// <summary>True after Save if your own Riot ID changed.</summary>
-    public bool MyRiotIdChanged { get; private set; }
-
+    /// <summary>True after Save if the "Surprise me" champion pick options changed (the current pick should be rerolled).</summary>
+    public bool SurprisePicksChanged { get; private set; }
     /// <summary>True after Save if the rival changed.</summary>
     public bool RivalChanged { get; private set; }
 
@@ -41,21 +40,23 @@ public partial class SettingsWindow : Window
         SetOpacitySliders(settings.BackgroundOpacity, settings.OverlayOpacity);
         _preview = preview; // set after the sliders so loading them doesn't count as a change
         SourceInitialized += (_, _) => Native.UseDarkTitleBar(this);
-        // Never taller than the screen it opens on (minus a margin); the settings scroll inside instead.
+        // Never taller than the screen it opens on (minus a margin); each page scrolls inside instead.
         MaxHeight = SystemParameters.WorkArea.Height - 40;
+        if (Height > MaxHeight) Height = MaxHeight;
 
         Load(settings.ToggleOverlay, settings.MoveOverlay, settings.Quit, settings.LevelWeight, settings.PollSeconds);
 
-        if (LeagueOverlay.Core.History.RiotIds.Split(settings.MyRiotId) is { } myId)
-        {
-            MyNameBox.Text = myId.Name;
-            MyTagBox.Text = myId.Tag;
-        }
+        MyAccountText.Text = settings.MyRiotId is { } me ? $"{me}  (from the League client)" : "Not known yet: open the League client and the app picks up your account.";
+        ReplaceRunesBox.IsChecked = settings.RunesReplaceCurrent;
         if (LeagueOverlay.Core.History.RiotIds.Split(settings.Rival) is { } rivalId)
         {
             RivalNameBox.Text = rivalId.Name;
             RivalTagBox.Text = rivalId.Tag;
         }
+        SurpriseMasteryBox.SelectedIndex = settings.SurprisePickAnyMastery ? 1 : 0;
+        SurpriseOddsBox.SelectedIndex = settings.SurprisePickEven ? 1 : 0;
+        SurpriseRoleBox.SelectedIndex = settings.SurprisePickOnlyMyRole ? 1 : 0;
+        SurpriseAvoidLosingBox.IsChecked = settings.SurprisePickAvoidLosingLanes;
         RegionBox.ItemsSource = RiotRegion.All;
         RegionBox.SelectedItem = RiotRegion.Find(settings.Region);
         KeyBox.Password = settings.ApiKey ?? "";
@@ -150,10 +151,13 @@ public partial class SettingsWindow : Window
         if (error is null && (rivalName.Length == 0) != (rivalTag.Length == 0))
             error = rivalName.Length == 0 ? "Rival: fill in their name as well as the tag." : "Rival: fill in their tag too (the part after # in their Riot ID, e.g. EUW).";
         string rival = rivalName.Length == 0 ? "" : $"{rivalName}#{rivalTag}";
-        string myName = MyNameBox.Text.Trim(), myTag = MyTagBox.Text.Trim().TrimStart('#').Trim();
-        if (error is null && (myName.Length == 0) != (myTag.Length == 0))
-            error = "Your Riot ID: fill in both the name and the tag.";
-        if (error is not null) { ShowError(error); return; }
+        if (error is not null)
+        {
+            // Show the page with the problem.
+            (error.StartsWith("Rival") ? NavAccount : NavGeneral).IsChecked = true;
+            ShowError(error);
+            return;
+        }
 
         TryParseNumber(LevelWeightBox.Text, out weight);
         TryParseNumber(PollBox.Text, out poll);
@@ -164,9 +168,13 @@ public partial class SettingsWindow : Window
         _settings.PollSeconds = poll;
         RivalChanged = !LeagueOverlay.Core.History.RiotIds.Same(rival, _settings.Rival ?? "") && !(rival.Length == 0 && _settings.Rival is null);
         _settings.Rival = rival.Length == 0 ? null : rival;
-        string? me = myName.Length == 0 ? null : $"{myName}#{myTag}";
-        MyRiotIdChanged = !LeagueOverlay.Core.History.RiotIds.Same(me ?? "", _settings.MyRiotId ?? "");
-        _settings.MyRiotId = me;
+        _settings.RunesReplaceCurrent = ReplaceRunesBox.IsChecked == true;
+        var picksBefore = _settings.SurprisePicks;
+        _settings.SurprisePickAnyMastery = SurpriseMasteryBox.SelectedIndex == 1;
+        _settings.SurprisePickEven = SurpriseOddsBox.SelectedIndex == 1;
+        _settings.SurprisePickOnlyMyRole = SurpriseRoleBox.SelectedIndex == 1;
+        _settings.SurprisePickAvoidLosingLanes = SurpriseAvoidLosingBox.IsChecked == true;
+        SurprisePicksChanged = _settings.SurprisePicks != picksBefore;
         _settings.BackgroundOpacity = BackgroundSlider.Value / 100;
         _settings.OverlayOpacity = OverlaySlider.Value / 100;
 
@@ -186,8 +194,8 @@ public partial class SettingsWindow : Window
         if (_exportBuilds is null) return;
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
-            FileName = $"LeagueOverlay-builds-{DateTime.Now:yyyy-MM-dd}{LeagueOverlay.Core.Builds.BuildShare.Extension}",
-            Filter = $"League Overlay builds|*{LeagueOverlay.Core.Builds.BuildShare.Extension}",
+            FileName = $"SecretOP-builds-{DateTime.Now:yyyy-MM-dd}{LeagueOverlay.Core.Builds.BuildShare.Extension}",
+            Filter = $"Secret OP builds|*{LeagueOverlay.Core.Builds.BuildShare.Extension}",
             InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
         };
         if (dialog.ShowDialog(this) != true) return;
@@ -199,7 +207,7 @@ public partial class SettingsWindow : Window
         if (_importBuilds is null) return;
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Filter = $"League Overlay builds|*{LeagueOverlay.Core.Builds.BuildShare.Extension}",
+            Filter = $"Secret OP builds|*{LeagueOverlay.Core.Builds.BuildShare.Extension}",
             InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "\\Downloads",
         };
         if (dialog.ShowDialog(this) != true) return;
@@ -209,12 +217,15 @@ public partial class SettingsWindow : Window
         finally { ImportBuildsButton.IsEnabled = ExportBuildsButton.IsEnabled = true; }
     }
 
-    private void MyName_TextChanged(object sender, TextChangedEventArgs e)
+    /// <summary>Shows the page picked in the sidebar.</summary>
+    private void Nav_Checked(object sender, RoutedEventArgs e)
     {
-        if (LeagueOverlay.Core.History.RiotIds.Split(MyNameBox.Text) is not { } id) return;
-        MyNameBox.Text = id.Name;
-        MyTagBox.Text = id.Tag;
-        MyNameBox.CaretIndex = MyNameBox.Text.Length;
+        if (PageGeneral is null) return; // still loading
+        PageGeneral.Visibility = NavGeneral.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        PageLook.Visibility = NavLook.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        PageAccount.Visibility = NavAccount.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        PageChampSelect.Visibility = NavChampSelect.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        PageData.Visibility = NavData.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>A full "Name#Tag" pasted into the name box is split into the two boxes.</summary>
@@ -263,6 +274,9 @@ public partial class SettingsWindow : Window
         Load(Hotkey.Parse(Settings.DefaultToggleHotkey, default), Hotkey.Parse(Settings.DefaultMoveHotkey, default),
              Hotkey.Parse(Settings.DefaultQuitHotkey, default), 350, 2);
         SetOpacitySliders(Settings.DefaultBackgroundOpacity, 1); // the slider events update the preview
+        SurpriseMasteryBox.SelectedIndex = SurpriseOddsBox.SelectedIndex = SurpriseRoleBox.SelectedIndex = 0;
+        SurpriseAvoidLosingBox.IsChecked = true;
+        ReplaceRunesBox.IsChecked = false;
     }
 
     private void ShowError(string? message)

@@ -1,5 +1,5 @@
-League Overlay
-==============
+Secret OP
+=========
 
 A small in-game overlay for League of Legends. While you play it shows:
   - how much more gold (spent on items) the enemy team has than yours
@@ -37,10 +37,10 @@ enter it in Settings.
 
 Getting started
 ---------------
-1. Run LeagueOverlay-Setup.exe. It installs for your Windows account only (no admin
-   needed) and adds League Overlay to the Start menu. Windows may say "Windows protected
+1. Run SecretOP-Setup.exe. It installs for your Windows account only (no admin
+   needed) and adds Secret OP to the Start menu. Windows may say "Windows protected
    your PC" because the installer isn't signed: click "More info", then "Run anyway".
-   (Got the zip instead? Put LeagueOverlay.exe anywhere and double-click it.)
+   (Got the zip instead? Put SecretOP.exe anywhere and double-click it.)
 2. In League, go to Settings > Video and set Window Mode to "Borderless" or "Windowed".
    The overlay can't show on top of full-screen mode.
 3. Start a game. The overlay appears by itself once you're past the loading screen.
@@ -83,14 +83,14 @@ have are skipped.
 Your data
 ---------
 Settings, your API key (encrypted for your Windows account) and collected builds are
-stored in %LOCALAPPDATA%\LeagueOverlay. To remove the app, uninstall "League Overlay"
+stored in %LOCALAPPDATA%\LeagueOverlay. To remove the app, uninstall "Secret OP"
 from Windows Settings > Apps; it asks whether to delete that folder too.
 
 The app only reads game data that League itself provides on your PC
 (https://127.0.0.1:2999) and public data from Riot. It doesn't change the game.
 
 
-League Overlay isn't endorsed by Riot Games and doesn't reflect the views or opinions of
+Secret OP isn't endorsed by Riot Games and doesn't reflect the views or opinions of
 Riot Games or anyone officially involved in producing or managing Riot Games properties.
 Riot Games and all associated properties are trademarks or registered trademarks of
 Riot Games, Inc.

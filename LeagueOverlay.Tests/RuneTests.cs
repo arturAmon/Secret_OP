@@ -202,13 +202,17 @@ public class RuneTests
             { "localPlayerCellId": 2, "myTeam": [ { "cellId": 1, "championId": 86 }, { "cellId": 2, "championId": 0, "championPickIntent": 103, "assignedPosition": "middle" } ],
               "actions": [ [ { "actorCellId": 2, "type": "pick", "completed": false } ] ] }
             """);
-        Assert.Equal(new ChampSelectState(103, false, "middle"), LcuClient.ParseSession(hovering.RootElement));
+        var h = LcuClient.ParseSession(hovering.RootElement)!;
+        Assert.Equal((103, false, "middle"), (h.ChampionId, h.Locked, h.Position));
+        Assert.Equal([new PickSlot(86, null)], h.Allies);
 
         using var locked = JsonDocument.Parse("""
             { "localPlayerCellId": 2, "myTeam": [ { "cellId": 2, "championId": 103, "championPickIntent": 0, "assignedPosition": "" } ],
               "actions": [ [ { "actorCellId": 2, "type": "ban", "completed": true } ], [ { "actorCellId": 2, "type": "pick", "completed": true } ] ] }
             """);
-        Assert.Equal(new ChampSelectState(103, true, null), LcuClient.ParseSession(locked.RootElement));
+        var l = LcuClient.ParseSession(locked.RootElement)!;
+        Assert.Equal((103, true, (string?)null), (l.ChampionId, l.Locked, l.Position));
+        Assert.Null(l.PickActionId);
     }
 
     private static GameRecord SurpriseGame(string result, int[] finalItems, PostGameStats? post, int[]? plannedRunes)

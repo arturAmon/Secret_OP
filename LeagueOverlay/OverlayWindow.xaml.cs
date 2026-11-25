@@ -35,6 +35,8 @@ public partial class OverlayWindow : Window
     private KeyboardHook? _keys;
     private bool _moveMode, _userHidden, _inGame;
     private ChampSelectView? _champSelect;
+    private PickAdvice? _picks;
+    private bool ShowingChampSelect => _champSelect is not null || _picks is { Picks.Count: > 0 };
     private RuneCatalog _runes = RuneCatalog.Empty;
     private Func<int, string?>? _itemName;
 
@@ -43,7 +45,7 @@ public partial class OverlayWindow : Window
     public event Action? OverlayStateChanged;
 
     public bool InGame => _inGame;
-    public bool InChampSelect => _champSelect is not null;
+    public bool InChampSelect => ShowingChampSelect;
     public bool UserHidden => _userHidden;
     public bool MoveMode => _moveMode;
 
@@ -57,7 +59,7 @@ public partial class OverlayWindow : Window
         _icons.IconLoaded += () =>
         {
             if (_lastState is not null) { RenderItems(_lastState.Items); RenderStacks(_lastState.Stacks); }
-            else if (_champSelect is not null) RenderChampSelect(_champSelect);
+            else if (ShowingChampSelect) RenderChampSelect(_champSelect, _picks);
         };
         BuildLaneCells();
         PlaceWindow();
@@ -155,7 +157,7 @@ public partial class OverlayWindow : Window
 
     private void UpdateVisibility()
     {
-        bool champSelect = !_inGame && _champSelect is not null;
+        bool champSelect = !_inGame && ShowingChampSelect;
         ChampSelectPanel.Visibility = champSelect ? Visibility.Visible : Visibility.Collapsed;
         GamePanel.Visibility = champSelect ? Visibility.Collapsed : Visibility.Visible;
         bool show = _moveMode || _preview || ((_inGame || champSelect) && !_userHidden);
@@ -234,12 +236,43 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>Champion select: the suggested runes over the League client. Null = not in champion select.</summary>
-    public void RenderChampSelect(ChampSelectView? view)
+    public void RenderChampSelect(ChampSelectView? view, PickAdvice? picks = null)
     {
-        bool changed = (view is null) != (_champSelect is null);
+        bool was = ShowingChampSelect;
         _champSelect = view;
-        if (changed) OverlayStateChanged?.Invoke();
+        _picks = view is { Locked: true } ? null : picks;
+        if (was != ShowingChampSelect) OverlayStateChanged?.Invoke();
         ChampSelectPanel.Children.Clear();
+        if (_picks is { Picks.Count: > 0 } advice)
+        {
+            // Champion suggestions until you lock in.
+            ChampSelectPanel.Children.Add(new TextBlock
+            {
+                Text = advice.Mode == PickMode.Surprise ? "SURPRISE PICK" : $"SUGGESTED PICKS · {advice.Role}".ToUpperInvariant(),
+                FontSize = 10, FontWeight = FontWeights.Bold, Foreground = advice.Mode == PickMode.Surprise ? Theme.PinkBrush : Accent, Margin = new Thickness(0, 0, 0, 4),
+            });
+            foreach (var pick in advice.Picks)
+            {
+                var row = new DockPanel { Margin = new Thickness(0, 2, 0, 4) };
+                var icon = new Border
+                {
+                    Width = 30, Height = 30, CornerRadius = new CornerRadius(4), ClipToBounds = true, Margin = new Thickness(0, 0, 8, 0),
+                    VerticalAlignment = VerticalAlignment.Top, Background = IconBackground, Child = new Image { Source = _icons.Champion(pick.ChampionId) },
+                };
+                DockPanel.SetDock(icon, Dock.Left);
+                row.Children.Add(icon);
+                var text = new StackPanel();
+                text.Children.Add(new TextBlock { Text = pick.Name, FontWeight = FontWeights.SemiBold });
+                text.Children.Add(new TextBlock
+                {
+                    Text = string.Join(" · ", pick.Reasons.Take(2)), FontSize = 10.5, TextWrapping = TextWrapping.Wrap,
+                    Foreground = pick.Reasons.FirstOrDefault()?.StartsWith("Careful") == true ? Red : Muted,
+                });
+                row.Children.Add(text);
+                ChampSelectPanel.Children.Add(row);
+            }
+            if (view is not null) ChampSelectPanel.Children.Add(new Border { Height = 1, Background = CellBorder, Margin = new Thickness(0, 6, 0, 8) });
+        }
         if (view is not null)
         {
             var head = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
@@ -311,12 +344,12 @@ public partial class OverlayWindow : Window
             }
             ChampSelectPanel.Children.Add(new TextBlock
             {
-                Text = view.Locked ? "The build is in the in-game shop (League Overlay item set). Apply the rune page from the League Overlay window."
-                    : "Apply the rune page from the League Overlay window.", FontSize = 10.5, Foreground = Muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap,
+                Text = view.Locked ? "The build is in the in-game shop (Secret OP item set). Apply the rune page from the Secret OP window."
+                    : "Apply the rune page from the Secret OP window.", FontSize = 10.5, Foreground = Muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap,
             });
         }
         UpdateVisibility();
-        if (view is not null) KeepOnTop();
+        if (ShowingChampSelect) KeepOnTop();
     }
 
     private void RenderGold(GoldSummary gold)

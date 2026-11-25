@@ -198,7 +198,10 @@ public sealed class GameRecorder
     }
 }
 
-/// <summary>The last <see cref="Keep"/> games, one JSON file each.</summary>
+/// <summary>
+/// The last <see cref="Keep"/> games of each account, one JSON file each. <see cref="Account"/> (the account logged into
+/// the League client) decides whose games <see cref="LoadRecent"/> returns; games without a known player show for everyone.
+/// </summary>
 public sealed class GameRecordStore(string root)
 {
     public const int Keep = 10;
@@ -209,6 +212,12 @@ public sealed class GameRecordStore(string root)
 
     public string Root { get; } = root;
 
+    /// <summary>Whose games to show ("Name#Tag"); null shows everyone's.</summary>
+    public string? Account { get; set; }
+
+    public static bool Belongs(GameRecord g, string? account) =>
+        account is null || g.Me is not { } me || RiotIds.Same(me.Key, account);
+
     public void Save(GameRecord record)
     {
         Directory.CreateDirectory(Root);
@@ -216,19 +225,24 @@ public sealed class GameRecordStore(string root)
         var path = Path.Combine(Root, $"{record.EndedAt:yyyyMMdd-HHmmss}-{safeChamp}.json");
         File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(record, Json));
         File.Move(path + ".tmp", path, overwrite: true);
-        foreach (var old in Files().Skip(Keep)) try { File.Delete(old); } catch (IOException) { }
+        // Keep the newest games of this game's account.
+        string? owner = record.Me?.Key;
+        foreach (var (old, _) in ReadAll().Where(x => owner is null ? x.Record.Me is null : x.Record.Me is { } m && RiotIds.Same(m.Key, owner)).Skip(Keep))
+            try { File.Delete(old); } catch (IOException) { }
     }
 
     /// <summary>Newest first. Files that can't be read (e.g. from an older version) are skipped.</summary>
-    public List<GameRecord> LoadRecent()
+    public List<GameRecord> LoadRecent() => ReadAll().Select(x => x.Record).Where(g => Belongs(g, Account)).Take(Keep).ToList();
+
+    private IEnumerable<(string Path, GameRecord Record)> ReadAll()
     {
-        var list = new List<GameRecord>();
-        foreach (var file in Files().Take(Keep))
+        foreach (var file in Files())
         {
-            try { if (JsonSerializer.Deserialize<GameRecord>(File.ReadAllText(file), Json) is { } r) list.Add(r); }
+            GameRecord? r = null;
+            try { r = JsonSerializer.Deserialize<GameRecord>(File.ReadAllText(file), Json); }
             catch (Exception e) when (e is JsonException or IOException or NotSupportedException) { }
+            if (r is not null) yield return (file, r);
         }
-        return list;
     }
 
     // File names start with the end time, so name order is time order.

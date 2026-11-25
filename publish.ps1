@@ -1,6 +1,6 @@
 # Builds everything to share into .\dist:
-#   LeagueOverlay-Setup-vX.Y.Z.exe   the installer to send to friends (includes your popular builds)
-#   LeagueOverlay-vX.Y.Z.zip         the same app without installing (exe + README)
+#   SecretOP-Setup-vX.Y.Z.exe   the installer to send to friends (includes your popular builds)
+#   SecretOP-vX.Y.Z.zip         the same app without installing (exe + README)
 # Usage:  powershell -ExecutionPolicy Bypass -File .\publish.ps1 [-NoBuilds] [-Release]
 #   -NoBuilds   leave your collected popular builds out of the installer
 #   -Release    also publish it on GitHub as release vX.Y.Z (bump <Version> in LeagueOverlay.csproj and commit first)
@@ -17,15 +17,15 @@ if (Test-Path dist) { Remove-Item dist -Recurse -Force }
 dotnet publish LeagueOverlay -p:PublishProfile=Share -p:DebugType=none --nologo -v q
 if ($LASTEXITCODE -ne 0) { throw "Publish failed." }
 Copy-Item README.txt dist\README.txt
-$version = (Get-Item dist\LeagueOverlay.exe).VersionInfo.ProductVersion -replace '\+.*$', ''
+$version = (Get-Item dist\SecretOP.exe).VersionInfo.ProductVersion -replace '\+.*$', ''
 
 # Portable zip (no builds inside: friends can import a builds file from Settings instead).
-Compress-Archive -Path dist\LeagueOverlay.exe, dist\README.txt -DestinationPath "dist\LeagueOverlay-v$version.zip"
+Compress-Archive -Path dist\SecretOP.exe, dist\README.txt -DestinationPath "dist\SecretOP-v$version.zip"
 
 # Your collected popular builds, for the installer.
 $isccArgs = @("/Q", "/DAppVersion=$version")
 if (-not $NoBuilds) {
-    $p = Start-Process dist\LeagueOverlay.exe -ArgumentList '--export-builds', "`"$PWD\dist\PopularBuilds.lobuilds`"" -Wait -PassThru
+    $p = Start-Process dist\SecretOP.exe -ArgumentList '--export-builds', "`"$PWD\dist\PopularBuilds.lobuilds`"" -Wait -PassThru
     if ($p.ExitCode -eq 0 -and (Test-Path dist\PopularBuilds.lobuilds)) { $isccArgs += "/DWithBuilds" }
     else { Write-Warning "Couldn't export your builds; the installer won't include them." }
 }
@@ -45,11 +45,11 @@ if ($Release) {
     if (-not $gh) { $gh = "$env:ProgramFiles\GitHub CLI\gh.exe" }
     if (git status --porcelain) { throw "Commit your changes before releasing, so the release matches the code on GitHub." }
     git push -q
-    & $gh release create "v$version" "dist\LeagueOverlay-Setup-v$version.exe" "dist\LeagueOverlay-v$version.zip" `
-        --title "League Overlay $version" --generate-notes --latest
+    & $gh release create "v$version" "dist\SecretOP-Setup-v$version.exe" "dist\SecretOP-v$version.zip" `
+        --title "Secret OP $version" --generate-notes --latest
     if ($LASTEXITCODE -ne 0) { throw "GitHub release failed." }
 }
 
 Get-ChildItem dist -File | Format-Table Name, @{ n = 'Size (MB)'; e = { [math]::Round($_.Length / 1MB, 1) } } -AutoSize
-"Send dist\LeagueOverlay-Setup-v$version.exe to friends. Your API key, settings and saved games are not in it" +
+"Send dist\SecretOP-Setup-v$version.exe to friends. Your API key, settings and saved games are not in it" +
     $(if ($isccArgs -contains '/DWithBuilds') { "; your collected popular builds are." } else { "." })

@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Net.Security;
 using System.Text;
 using System.Text.Json;
+using LeagueOverlay.Core.Analysis;
 using LeagueOverlay.Core.Builds;
 
 namespace LeagueOverlay.Core.Lcu;
@@ -22,8 +23,17 @@ public sealed record LcuCredentials(int Port, string Password, string Protocol)
     public Uri BaseUri => new($"{Protocol}://127.0.0.1:{Port}/");
 }
 
-/// <summary>Champion select as far as the overlay cares: your champion (hovered or locked in) and assigned role.</summary>
-public sealed record ChampSelectState(int ChampionId, bool Locked, string? Position);
+/// <summary>
+/// Champion select as far as the overlay cares: your champion (hovered or locked in, 0 = none yet) and assigned role,
+/// the other picks and hovers, bans, and your pick action (to hover a suggested champion for you).
+/// </summary>
+public sealed record ChampSelectState(int ChampionId, bool Locked, string? Position)
+{
+    public ValueList<PickSlot> Allies { get; init; } = ValueList<PickSlot>.Empty;
+    public ValueList<PickSlot> Enemies { get; init; } = ValueList<PickSlot>.Empty;
+    public ValueList<int> Bans { get; init; } = ValueList<int>.Empty;
+    public long? PickActionId { get; init; }
+}
 
 /// <summary>
 /// The League client's local API (the "LCU": the launcher / lobby, not the game). Unofficial, so everything here
@@ -32,7 +42,10 @@ public sealed record ChampSelectState(int ChampionId, bool Locked, string? Posit
 /// </summary>
 public sealed class LcuClient : IDisposable
 {
-    public const string PageName = "League Overlay";
+    public const string PageName = "Secret OP";
+    /// <summary>The app's name before it was renamed: rune pages and item sets made under it are replaced too.</summary>
+    public const string LegacyPageName = "League Overlay";
+    private static bool OurName(string? name) => name is not null && (name.StartsWith(PageName) || name.StartsWith(LegacyPageName));
 
     private HttpClient? _http;
     private LcuCredentials? _creds;
@@ -141,9 +154,126 @@ public sealed class LcuClient : IDisposable
             bool done = locked > 0 && IsPickDone(session, cell);
             string? position = p.TryGetProperty("assignedPosition", out var pos) && pos.GetString() is { Length: > 0 } s ? s : null;
             int champion = locked > 0 ? locked : hover;
-            return new ChampSelectState(champion, done, position);
+            return new ChampSelectState(champion, done, position)
+            {
+                Allies = new(team.EnumerateArray().Where(a => !(a.TryGetProperty("cellId", out var ac) && ac.GetInt64() == cell)).Select(Slot)),
+                Enemies = new(session.TryGetProperty("theirTeam", out var their) && their.ValueKind == JsonValueKind.Array ? their.EnumerateArray().Select(Slot) : []),
+                Bans = new(Bans(session)),
+                PickActionId = PickAction(session, cell),
+            };
         }
         return null;
+    }
+
+    private static readonly Dictionary<string, string> Positions = new(StringComparer.OrdinalIgnoreCase)
+        { ["top"] = "TOP", ["jungle"] = "JUNGLE", ["middle"] = "MIDDLE", ["bottom"] = "BOTTOM", ["utility"] = "UTILITY" };
+
+    /// <summary>"middle" -> "MIDDLE" (match-v5 style); null when not assigned.</summary>
+    public static string? NormalizePosition(string? lcu) => lcu is not null && Positions.TryGetValue(lcu, out var p) ? p : null;
+
+    private static PickSlot Slot(JsonElement p)
+    {
+        int locked = p.TryGetProperty("championId", out var ch) ? ch.GetInt32() : 0;
+        int hover = p.TryGetProperty("championPickIntent", out var pi) ? pi.GetInt32() : 0;
+        string? pos = p.TryGetProperty("assignedPosition", out var ap) ? NormalizePosition(ap.GetString()) : null;
+        return new PickSlot(locked > 0 ? locked : hover, pos);
+    }
+
+    private static IEnumerable<int> Bans(JsonElement session)
+    {
+        var bans = new HashSet<int>();
+        if (session.TryGetProperty("bans", out var b) && b.ValueKind == JsonValueKind.Object)
+            foreach (var side in new[] { "myTeamBans", "theirTeamBans" })
+                if (b.TryGetProperty(side, out var list) && list.ValueKind == JsonValueKind.Array)
+                    foreach (var x in list.EnumerateArray()) if (x.ValueKind == JsonValueKind.Number && x.GetInt32() > 0) bans.Add(x.GetInt32());
+        if (session.TryGetProperty("actions", out var actions) && actions.ValueKind == JsonValueKind.Array)
+            foreach (var turn in actions.EnumerateArray())
+            foreach (var a in turn.EnumerateArray())
+                if (a.TryGetProperty("type", out var t) && t.GetString() == "ban" && Bool(a, "completed") && a.TryGetProperty("championId", out var c) && c.GetInt32() > 0)
+                    bans.Add(c.GetInt32());
+        return bans.Order();
+    }
+
+    /// <summary>Your pick action that isn't done yet (hovering a champion sets it on this action).</summary>
+    private static long? PickAction(JsonElement session, long cell)
+    {
+        if (!session.TryGetProperty("actions", out var actions) || actions.ValueKind != JsonValueKind.Array) return null;
+        foreach (var turn in actions.EnumerateArray())
+        foreach (var a in turn.EnumerateArray())
+            if (a.TryGetProperty("actorCellId", out var actor) && actor.GetInt64() == cell && a.TryGetProperty("type", out var t) && t.GetString() == "pick"
+                && !Bool(a, "completed") && a.TryGetProperty("id", out var id))
+                return id.GetInt64();
+        return null;
+    }
+
+    /// <summary>The Riot ID ("Name#Tag") in a lol-summoner/v1/current-summoner response, or null without one.</summary>
+    public static string? ParseAccount(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var r = doc.RootElement;
+            string? name = r.TryGetProperty("gameName", out var n) ? n.GetString()?.Trim() : null;
+            string? tag = r.TryGetProperty("tagLine", out var t) ? t.GetString()?.Trim() : null;
+            return string.IsNullOrEmpty(name) || string.IsNullOrEmpty(tag) ? null : $"{name}#{tag}";
+        }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>The account logged into the League client ("Name#Tag"), or null if the client isn't running or won't say.</summary>
+    public async Task<string?> CurrentAccountAsync(CancellationToken ct = default)
+    {
+        if (Connect() is not { } http) return null;
+        try { return ParseAccount(await http.GetStringAsync("lol-summoner/v1/current-summoner", ct)); }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException
+                                      || (e is TaskCanceledException && !ct.IsCancellationRequested)) { return null; }
+    }
+
+    /// <summary>Champions you can pick right now (owned + free rotation), or null if the client won't say.</summary>
+    public async Task<IReadOnlySet<int>?> PickableAsync(CancellationToken ct = default)
+    {
+        if (Connect() is not { } http) return null;
+        try
+        {
+            var ids = await http.GetFromJsonAsync<int[]>("lol-champ-select/v1/pickable-champion-ids", ct);
+            return ids is { Length: > 0 } ? ids.ToHashSet() : null;
+        }
+        catch (Exception e) when (e is HttpRequestException or JsonException or InvalidOperationException or NotSupportedException
+                                      || (e is TaskCanceledException && !ct.IsCancellationRequested)) { return null; }
+    }
+
+    /// <summary>Your mastery on every champion you've played (champion id -> level, points), or null if unavailable.</summary>
+    public async Task<IReadOnlyDictionary<int, ChampMastery>?> MasteryAsync(CancellationToken ct = default)
+    {
+        if (Connect() is not { } http) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(await http.GetStringAsync("lol-champion-mastery/v1/local-player/champion-mastery", ct));
+            var result = new Dictionary<int, ChampMastery>();
+            foreach (var m in doc.RootElement.EnumerateArray())
+                if (m.TryGetProperty("championId", out var id))
+                    result[id.GetInt32()] = new(m.TryGetProperty("championLevel", out var l) ? l.GetInt32() : 0,
+                        m.TryGetProperty("championPoints", out var pts) ? (int)Math.Min(int.MaxValue, pts.GetInt64()) : 0);
+            return result;
+        }
+        catch (Exception e) when (e is HttpRequestException or JsonException or InvalidOperationException or KeyNotFoundException
+                                      || (e is TaskCanceledException && !ct.IsCancellationRequested)) { return null; }
+    }
+
+    /// <summary>Hovers a champion on your pick (shows it to your team; doesn't lock it in).</summary>
+    public async Task<string> HoverAsync(long actionId, int championId, CancellationToken ct = default)
+    {
+        if (Connect() is not { } http) return "League client not found.";
+        try
+        {
+            using var content = new StringContent("{\"championId\":" + championId + "}", Encoding.UTF8, "application/json");
+            using var r = await http.PatchAsync($"lol-champ-select/v1/session/actions/{actionId}", content, ct);
+            return r.IsSuccessStatusCode ? "Hovered in the client." : $"The client didn't accept the hover ({(int)r.StatusCode}).";
+        }
+        catch (Exception e) when (e is HttpRequestException || (e is TaskCanceledException && !ct.IsCancellationRequested))
+        {
+            return "Couldn't reach the League client.";
+        }
     }
 
     /// <summary>Whether your pick action is completed (championId is also set while just hovering in some queues).</summary>
@@ -174,7 +304,7 @@ public sealed class LcuClient : IDisposable
             using (var pagesDoc = JsonDocument.Parse(await http.GetStringAsync("lol-perks/v1/pages", ct)))
             {
                 foreach (var p in pagesDoc.RootElement.EnumerateArray())
-                    if (p.TryGetProperty("name", out var n) && n.GetString() == PageName && Bool(p, "isDeletable"))
+                    if (p.TryGetProperty("name", out var n) && OurName(n.GetString()) && Bool(p, "isDeletable"))
                         await http.DeleteAsync($"lol-perks/v1/pages/{p.GetProperty("id").GetInt64()}", ct);
             }
             var body = new
@@ -205,7 +335,7 @@ public sealed class LcuClient : IDisposable
     }
 
     /// <summary>
-    /// Puts an item set into the client: a custom page in the in-game shop for that champion, e.g. "League Overlay: Tank Ahri"
+    /// Puts an item set into the client: a custom page in the in-game shop for that champion, e.g. "Secret OP: Tank Ahri"
     /// with blocks "Start", "Build", "Boots". Replaces the set this app made before and leaves your own sets alone.
     /// </summary>
     public async Task<string> ApplyItemSetAsync(string title, int championId, IReadOnlyList<(string Name, IReadOnlyList<int> Items)> blocks, CancellationToken ct = default)
@@ -220,7 +350,7 @@ public sealed class LcuClient : IDisposable
                        ?? new System.Text.Json.Nodes.JsonObject();
             var sets = root["itemSets"] as System.Text.Json.Nodes.JsonArray ?? new System.Text.Json.Nodes.JsonArray();
             // Drop the sets this app made earlier.
-            foreach (var old in sets.Where(x => x?["title"]?.GetValue<string>() is { } t && t.StartsWith(PageName)).ToList()) sets.Remove(old);
+            foreach (var old in sets.Where(x => OurName(x?["title"]?.GetValue<string>())).ToList()) sets.Remove(old);
             var blockNodes = new System.Text.Json.Nodes.JsonArray();
             foreach (var (name, ids) in blocks.Where(b => b.Items.Count > 0))
             {
@@ -264,10 +394,10 @@ public sealed class LcuClient : IDisposable
 /// </summary>
 public sealed record ChampSelectView(
     string ChampionId, string ChampionName, string? Position, bool Locked, RuneSetup? Runes, string Source,
-    LeagueOverlay.Core.Analysis.ValueList<int> Items, bool Surprise)
+    ValueList<int> Items, bool Surprise)
 {
     /// <summary>Starting items (an entry per copy).</summary>
-    public LeagueOverlay.Core.Analysis.ValueList<int> Starter { get; init; } = LeagueOverlay.Core.Analysis.ValueList<int>.Empty;
+    public ValueList<int> Starter { get; init; } = ValueList<int>.Empty;
     /// <summary>The full item path for the shop item set (surprise path + boots, or the popular path).</summary>
-    public LeagueOverlay.Core.Analysis.ValueList<int> FullPath { get; init; } = LeagueOverlay.Core.Analysis.ValueList<int>.Empty;
+    public ValueList<int> FullPath { get; init; } = ValueList<int>.Empty;
 }

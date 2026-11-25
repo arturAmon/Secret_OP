@@ -3,167 +3,252 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings"
         Style="{StaticResource DarkWindow}"
-        Width="460" SizeToContent="Height" ResizeMode="CanResize" MinHeight="320"
+        Width="700" Height="560" ResizeMode="CanResize" MinWidth="560" MinHeight="380"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
-    <!-- Buttons and errors stay at the bottom; the settings scroll when the window is taller than the screen allows. -->
+    <Window.Resources>
+        <Style x:Key="PageTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="17"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,18,0,2"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+        <Style x:Key="NavButton" TargetType="RadioButton" BasedOn="{StaticResource TabButton}">
+            <Setter Property="Margin" Value="0,0,0,4"/>
+            <Setter Property="GroupName" Value="SettingsNav"/>
+        </Style>
+    </Window.Resources>
+
+    <!-- Sections on the left, the selected one on the right; buttons and errors stay at the bottom. -->
     <DockPanel>
         <Border DockPanel.Dock="Bottom" Background="{StaticResource Panel}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="20,12,20,14">
             <StackPanel>
                 <TextBlock x:Name="ErrorText" Margin="0,0,0,10" FontSize="12" Foreground="{StaticResource ErrBrush}" TextWrapping="Wrap" Visibility="Collapsed"/>
                 <DockPanel LastChildFill="False">
-                    <Button DockPanel.Dock="Left" Content="Reset to defaults" Click="Reset_Click"/>
+                    <Button DockPanel.Dock="Left" Content="Reset to defaults" Click="Reset_Click"
+                            ToolTip="Hotkeys, overlay, look and surprise pick options back to their defaults (your account, rival and API key stay)"/>
                     <Button DockPanel.Dock="Right" Content="Save" Style="{StaticResource AccentButton}" Margin="8,0,0,0" Click="Save_Click"/>
                     <Button DockPanel.Dock="Right" Content="Cancel" Click="Cancel_Click"/>
                 </DockPanel>
             </StackPanel>
         </Border>
-    <ScrollViewer x:Name="SettingsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <StackPanel Margin="20">
-        <TextBlock Text="Hotkeys" FontSize="15" FontWeight="SemiBold"/>
-        <TextBlock Margin="0,2,0,10" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                   Text="Click a box, then press the new key combination. Include Ctrl or Alt (or use F1–F24) so it doesn't fire while you type in chat."/>
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="150"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition/>
-                <RowDefinition/>
-                <RowDefinition/>
-            </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Text="Show / hide overlay" VerticalAlignment="Center"/>
-            <TextBlock Grid.Row="1" Text="Move overlay" VerticalAlignment="Center"/>
-            <TextBlock Grid.Row="2" Text="Stop app" VerticalAlignment="Center"/>
-            <TextBox x:Name="ToggleBox" Grid.Row="0" Grid.Column="1" Margin="0,3" IsReadOnly="True" Cursor="Hand" FontFamily="Consolas"/>
-            <TextBox x:Name="MoveBox" Grid.Row="1" Grid.Column="1" Margin="0,3" IsReadOnly="True" Cursor="Hand" FontFamily="Consolas"/>
-            <TextBox x:Name="QuitBox" Grid.Row="2" Grid.Column="1" Margin="0,3" IsReadOnly="True" Cursor="Hand" FontFamily="Consolas"/>
-        </Grid>
 
-        <TextBlock Text="Overlay" FontSize="15" FontWeight="SemiBold" Margin="0,20,0,8"/>
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="90"/>
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition/>
-                <RowDefinition/>
-            </Grid.RowDefinitions>
-            <StackPanel Grid.Row="0" VerticalAlignment="Center">
-                <TextBlock Text="Gold value of one level"/>
-                <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="Used when comparing lanes (default 350)"/>
+        <Border DockPanel.Dock="Left" Width="170" Background="{StaticResource Panel}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,1,0" Padding="10,16">
+            <StackPanel>
+                <RadioButton x:Name="NavGeneral" Style="{StaticResource NavButton}" Content="General" IsChecked="True" Checked="Nav_Checked"/>
+                <RadioButton x:Name="NavLook" Style="{StaticResource NavButton}" Content="Overlay look" Checked="Nav_Checked"/>
+                <RadioButton x:Name="NavAccount" Style="{StaticResource NavButton}" Content="Account &amp; rival" Checked="Nav_Checked"/>
+                <RadioButton x:Name="NavChampSelect" Style="{StaticResource NavButton}" Content="Champion select" Checked="Nav_Checked"/>
+                <RadioButton x:Name="NavData" Style="{StaticResource NavButton}" Content="Builds &amp; Riot API" Checked="Nav_Checked"/>
             </StackPanel>
-            <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,8,0,0">
-                <TextBlock Text="Refresh every (seconds)"/>
-                <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="Lower = fresher, slightly more CPU (default 2)"/>
-            </StackPanel>
-            <TextBox x:Name="LevelWeightBox" Grid.Row="0" Grid.Column="1" Margin="0,3"/>
-            <TextBox x:Name="PollBox" Grid.Row="1" Grid.Column="1" Margin="0,11,0,3"/>
-        </Grid>
+        </Border>
 
-        <TextBlock Text="Overlay look" FontSize="15" FontWeight="SemiBold" Margin="0,20,0,2"/>
-        <TextBlock Margin="0,0,0,8" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                   Text="The overlay stays visible while Settings is open, so you can see the changes as you drag."/>
         <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="150"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="48"/>
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition/>
-                <RowDefinition/>
-            </Grid.RowDefinitions>
-            <StackPanel Grid.Row="0" VerticalAlignment="Center">
-                <TextBlock Text="Background"/>
-                <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="Dark panel behind the text"/>
-            </StackPanel>
-            <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,8,0,0">
-                <TextBlock Text="Whole overlay"/>
-                <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="Text and icons too"/>
-            </StackPanel>
-            <Slider x:Name="BackgroundSlider" Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="100" VerticalAlignment="Center"
-                    IsSnapToTickEnabled="True" TickFrequency="5" ValueChanged="Opacity_Changed"/>
-            <Slider x:Name="OverlaySlider" Grid.Row="1" Grid.Column="1" Minimum="20" Maximum="100" VerticalAlignment="Center" Margin="0,8,0,0"
-                    IsSnapToTickEnabled="True" TickFrequency="5" ValueChanged="Opacity_Changed"/>
-            <TextBlock x:Name="BackgroundValue" Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" FontFamily="Consolas"/>
-            <TextBlock x:Name="OverlayValue" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" FontFamily="Consolas" Margin="0,8,0,0"/>
+            <!-- General: hotkeys and how the overlay works -->
+            <ScrollViewer x:Name="PageGeneral" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="22,18,22,20">
+                    <TextBlock Text="General" Style="{StaticResource PageTitle}"/>
+                    <TextBlock Text="Hotkeys" Style="{StaticResource SectionTitle}" Margin="0,0,0,2"/>
+                    <TextBlock Style="{StaticResource Hint}" Text="Click a box, then press the new key combination. Include Ctrl or Alt (or use F1–F24) so it doesn't fire while you type in chat."/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Show / hide overlay" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Row="1" Text="Move overlay" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Row="2" Text="Stop app" VerticalAlignment="Center"/>
+                        <TextBox x:Name="ToggleBox" Grid.Row="0" Grid.Column="1" Margin="0,3" IsReadOnly="True" Cursor="Hand" FontFamily="Consolas"/>
+                        <TextBox x:Name="MoveBox" Grid.Row="1" Grid.Column="1" Margin="0,3" IsReadOnly="True" Cursor="Hand" FontFamily="Consolas"/>
+                        <TextBox x:Name="QuitBox" Grid.Row="2" Grid.Column="1" Margin="0,3" IsReadOnly="True" Cursor="Hand" FontFamily="Consolas"/>
+                    </Grid>
+
+                    <TextBlock Text="Overlay" Style="{StaticResource SectionTitle}" Margin="0,18,0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="90"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" VerticalAlignment="Center">
+                            <TextBlock Text="Gold value of one level"/>
+                            <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="Used when comparing lanes (default 350)"/>
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,8,0,0">
+                            <TextBlock Text="Refresh every (seconds)"/>
+                            <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="Lower = fresher, slightly more CPU (default 2)"/>
+                        </StackPanel>
+                        <TextBox x:Name="LevelWeightBox" Grid.Row="0" Grid.Column="1" Margin="0,3"/>
+                        <TextBox x:Name="PollBox" Grid.Row="1" Grid.Column="1" Margin="0,11,0,3"/>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Overlay look -->
+            <ScrollViewer x:Name="PageLook" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="22,18,22,20">
+                    <TextBlock Text="Overlay look" Style="{StaticResource PageTitle}"/>
+                    <TextBlock Style="{StaticResource Hint}" Text="The overlay stays visible while Settings is open, so you can see the changes as you drag."/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="48"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" VerticalAlignment="Center">
+                            <TextBlock Text="Background"/>
+                            <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="Dark panel behind the text"/>
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,8,0,0">
+                            <TextBlock Text="Whole overlay"/>
+                            <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="Text and icons too"/>
+                        </StackPanel>
+                        <Slider x:Name="BackgroundSlider" Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="100" VerticalAlignment="Center"
+                                IsSnapToTickEnabled="True" TickFrequency="5" ValueChanged="Opacity_Changed"/>
+                        <Slider x:Name="OverlaySlider" Grid.Row="1" Grid.Column="1" Minimum="20" Maximum="100" VerticalAlignment="Center" Margin="0,8,0,0"
+                                IsSnapToTickEnabled="True" TickFrequency="5" ValueChanged="Opacity_Changed"/>
+                        <TextBlock x:Name="BackgroundValue" Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" FontFamily="Consolas"/>
+                        <TextBlock x:Name="OverlayValue" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" FontFamily="Consolas" Margin="0,8,0,0"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource Hint}" Margin="0,16,0,0"
+                               Text="The look of the images you share from History is picked in the Collection tab."/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Account (from the League client) and rival -->
+            <ScrollViewer x:Name="PageAccount" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="22,18,22,20">
+                    <TextBlock Text="Account &amp; rival" Style="{StaticResource PageTitle}"/>
+                    <TextBlock Text="Your account" Style="{StaticResource SectionTitle}" Margin="0,0,0,2"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Always the account logged into the League client. Your History, surprise games and unlocks belong to it; log into another account in the client to switch."/>
+                    <Border Background="{StaticResource Panel2}" CornerRadius="6" Padding="12,8">
+                        <TextBlock x:Name="MyAccountText" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    </Border>
+
+                    <TextBlock Text="Rival" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="The friend you compete with. In every game you play together, the app compares your stats. Enter their Riot ID (name and tag, as shown in the League client), or click ☆ next to them in a game's scoreboard (History)."/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="90"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Riot ID" VerticalAlignment="Center"/>
+                        <TextBox x:Name="RivalNameBox" Grid.Column="1" Margin="0,3" ToolTip="Game name, e.g. Duo Friend" TextChanged="RivalName_TextChanged"/>
+                        <TextBlock Grid.Column="2" Text="#" FontSize="15" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="8,0,8,0"/>
+                        <TextBox x:Name="RivalTagBox" Grid.Column="3" Margin="0,3" ToolTip="Tag line, e.g. EUW"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="name" FontSize="10" Foreground="{StaticResource MutedBrush}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="3" Text="tag" FontSize="10" Foreground="{StaticResource MutedBrush}"/>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Champion select -->
+            <ScrollViewer x:Name="PageChampSelect" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="22,18,22,20">
+                    <TextBlock Text="Champion select" Style="{StaticResource PageTitle}"/>
+                    <TextBlock Text="Surprise champion picks" Style="{StaticResource SectionTitle}" Margin="0,0,0,2"/>
+                    <TextBlock Style="{StaticResource Hint}" Text="How &quot;Surprise me&quot; picks a champion for you in champion select."/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Champions" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="SurpriseMasteryBox" Grid.Column="1" Margin="0,3">
+                            <ComboBoxItem Content="Barely played (under 10k mastery)"/>
+                            <ComboBoxItem Content="Any, your mains included"/>
+                        </ComboBox>
+                        <TextBlock Grid.Row="1" Text="Odds" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="SurpriseOddsBox" Grid.Row="1" Grid.Column="1" Margin="0,3">
+                            <ComboBoxItem Content="Least played more likely"/>
+                            <ComboBoxItem Content="Completely random"/>
+                        </ComboBox>
+                        <TextBlock Grid.Row="2" Text="Roles" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="SurpriseRoleBox" Grid.Row="2" Grid.Column="1" Margin="0,3">
+                            <ComboBoxItem Content="Any role, off-meta picks too"/>
+                            <ComboBoxItem Content="Only champions for my role"/>
+                        </ComboBox>
+                    </Grid>
+                    <CheckBox x:Name="SurpriseAvoidLosingBox" Margin="0,10,0,0" Content="Skip champions that clearly lose against the enemy laner"/>
+
+                    <TextBlock Text="Runes" Style="{StaticResource SectionTitle}"/>
+                    <CheckBox x:Name="ReplaceRunesBox" Margin="0,4,0,0" Content="If no rune page is free, replace the current one when applying"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Popular builds and the Riot API key -->
+            <ScrollViewer x:Name="PageData" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="22,18,22,20">
+                    <TextBlock Text="Builds &amp; Riot API" Style="{StaticResource PageTitle}"/>
+                    <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,10">
+                        Item suggestions can follow what Challenger and Grandmaster players build, and History can fetch your games. This needs your own free Riot API key:
+                        sign in at <Hyperlink NavigateUri="https://developer.riotgames.com" RequestNavigate="Link_RequestNavigate">developer.riotgames.com</Hyperlink>
+                        and copy the Development API Key. Development keys stop working after 24 hours, so paste a fresh one when the app says so.
+                        Keep your key to yourself: anyone you give the app to should use their own.
+                    </TextBlock>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition/>
+                            <RowDefinition/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="Region" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="RegionBox" Grid.Row="0" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="1" Text="API key" VerticalAlignment="Center"/>
+                        <PasswordBox x:Name="KeyBox" Grid.Row="1" Grid.Column="1" Margin="0,3" FontFamily="Consolas"/>
+                    </Grid>
+                    <DockPanel Margin="0,6,0,0">
+                        <Button x:Name="TestKeyButton" DockPanel.Dock="Left" Content="Test key" Click="TestKey_Click"/>
+                        <TextBlock x:Name="KeyResult" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
+                    </DockPanel>
+
+                    <TextBlock Text="Share builds" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Export the builds you've collected to a file and send it to a friend, who imports it here. Games they already have are skipped."/>
+                    <DockPanel>
+                        <Button x:Name="ExportBuildsButton" DockPanel.Dock="Left" Content="Export builds…" Click="ExportBuilds_Click"/>
+                        <Button x:Name="ImportBuildsButton" DockPanel.Dock="Left" Content="Import builds…" Margin="8,0,0,0" Click="ImportBuilds_Click"/>
+                        <TextBlock x:Name="BuildsShareResult" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
+                    </DockPanel>
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
-
-        <TextBlock Text="You" FontSize="15" FontWeight="SemiBold" Margin="0,20,0,2"/>
-        <TextBlock Margin="0,0,0,8" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                   Text="Your Riot ID, used to fetch your recent games from Riot. It's filled in automatically after your first game with the app running."/>
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="90"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="90"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Text="Riot ID" VerticalAlignment="Center"/>
-            <TextBox x:Name="MyNameBox" Grid.Column="1" Margin="0,3" ToolTip="Your game name" TextChanged="MyName_TextChanged"/>
-            <TextBlock Grid.Column="2" Text="#" FontSize="15" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="8,0,8,0"/>
-            <TextBox x:Name="MyTagBox" Grid.Column="3" Margin="0,3" ToolTip="Your tag line"/>
-        </Grid>
-
-        <TextBlock Text="Rival" FontSize="15" FontWeight="SemiBold" Margin="0,20,0,2"/>
-        <TextBlock Margin="0,0,0,8" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                   Text="The friend you compete with. In every game you play together, the app compares your stats. Enter their Riot ID (name and tag, as shown in the League client), or click ☆ next to them in a game's scoreboard (History)."/>
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="90"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="90"/>
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition/>
-                <RowDefinition/>
-            </Grid.RowDefinitions>
-            <TextBlock Text="Riot ID" VerticalAlignment="Center"/>
-            <TextBox x:Name="RivalNameBox" Grid.Column="1" Margin="0,3" ToolTip="Game name, e.g. Duo Friend" TextChanged="RivalName_TextChanged"/>
-            <TextBlock Grid.Column="2" Text="#" FontSize="15" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="8,0,8,0"/>
-            <TextBox x:Name="RivalTagBox" Grid.Column="3" Margin="0,3" ToolTip="Tag line, e.g. EUW"/>
-            <TextBlock Grid.Row="1" Grid.Column="1" Text="name" FontSize="10" Foreground="{StaticResource MutedBrush}"/>
-            <TextBlock Grid.Row="1" Grid.Column="3" Text="tag" FontSize="10" Foreground="{StaticResource MutedBrush}"/>
-        </Grid>
-
-        <TextBlock Text="Popular builds (Riot API)" FontSize="15" FontWeight="SemiBold" Margin="0,20,0,2"/>
-        <TextBlock Margin="0,0,0,10" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap">
-            Item suggestions can follow what Challenger and Grandmaster players build. This needs your own free Riot API key:
-            sign in at <Hyperlink NavigateUri="https://developer.riotgames.com" RequestNavigate="Link_RequestNavigate">developer.riotgames.com</Hyperlink>
-            and copy the Development API Key. Development keys stop working after 24 hours, so paste a fresh one when the app says so.
-            Keep your key to yourself: anyone you give the app to should use their own.
-        </TextBlock>
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="90"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition/>
-                <RowDefinition/>
-            </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Text="Region" VerticalAlignment="Center"/>
-            <ComboBox x:Name="RegionBox" Grid.Row="0" Grid.Column="1" Margin="0,3"/>
-            <TextBlock Grid.Row="1" Text="API key" VerticalAlignment="Center"/>
-            <PasswordBox x:Name="KeyBox" Grid.Row="1" Grid.Column="1" Margin="0,3" FontFamily="Consolas"/>
-        </Grid>
-        <DockPanel Margin="0,6,0,0">
-            <Button x:Name="TestKeyButton" DockPanel.Dock="Left" Content="Test key" Click="TestKey_Click"/>
-            <TextBlock x:Name="KeyResult" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
-        </DockPanel>
-
-        <TextBlock Margin="0,14,0,4" FontSize="12" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                   Text="Share the builds you've collected: export them to a file and send it to a friend, who imports it here. Games they already have are skipped."/>
-        <DockPanel>
-            <Button x:Name="ExportBuildsButton" DockPanel.Dock="Left" Content="Export builds…" Click="ExportBuilds_Click"/>
-            <Button x:Name="ImportBuildsButton" DockPanel.Dock="Left" Content="Import builds…" Margin="8,0,0,0" Click="ImportBuilds_Click"/>
-            <TextBlock x:Name="BuildsShareResult" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
-        </DockPanel>
-
-    </StackPanel>
-    </ScrollViewer>
     </DockPanel>
 </Window>

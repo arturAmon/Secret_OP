@@ -331,6 +331,26 @@ public sealed class BuildLibrary
         }
     }
 
+    private (int Version, MatchupStats Stats)? _matchups;
+
+    /// <summary>Role, lane matchup and synergy win rates from every collected game (both patches).</summary>
+    public MatchupStats Matchups
+    {
+        get
+        {
+            lock (_lock)
+            {
+                int version = Version;
+                if (_matchups is { } m && m.Version == version) return m.Stats;
+                var groups = Current.ByMatch().Select(g => g.Builds);
+                if (Previous is not null) groups = groups.Concat(Previous.ByMatch().Select(g => g.Builds));
+                var stats = MatchupStats.From(groups);
+                _matchups = (version, stats);
+                return stats;
+            }
+        }
+    }
+
     /// <summary>Typical end-of-game rune numbers from every collected game (both patches).</summary>
     public RuneBenchmarks Benchmarks
     {

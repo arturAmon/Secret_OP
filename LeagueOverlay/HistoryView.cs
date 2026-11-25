@@ -42,6 +42,9 @@ internal sealed partial class HistoryView
     /// <summary>"Don't suggest this again" for a surprise game's champion + style, and whether it's already blocked.</summary>
     public Action<string, string>? BlockSurprise { get; init; }
     public Func<string, string, bool>? IsSurpriseBlocked { get; init; }
+    /// <summary>Your surprise rewards (for the "unlocked" banner and the share style picker) and picking a share style.</summary>
+    public Func<RewardProgress?>? Progress { get; init; }
+    public Action<CardStyle>? PickStyle { get; init; }
 
     public HistoryView(IconCache icons, Func<int, string?> itemName, Func<LeagueOverlay.Core.Data.ItemCatalog> catalog, Func<string?> rival, Action<string> setRival, Func<GameRecord, RivalDuel?, bool, string?> share)
     {
@@ -117,6 +120,8 @@ internal sealed partial class HistoryView
             VerticalAlignment = VerticalAlignment.Center,
             Children = { new StackPanel { Orientation = Orientation.Horizontal, Children = { save, copy } }, feedback },
         };
+        if (Progress is not null && PickStyle is not null)
+            ((StackPanel)shareButtons.Children[0]).Children.Insert(0, CollectionView.StyleButton(Progress, PickStyle));
         DockPanel.SetDock(shareButtons, Dock.Right);
         header.Children.Add(shareButtons);
         var bigIcon = Icon(() => _icons.Champion(g.ChampionKey), 52);
@@ -132,6 +137,24 @@ internal sealed partial class HistoryView
         if (g.Imported) line2.Inlines.Add(new Run("  ·  from match history") { Foreground = Muted, FontSize = 11 });
         header.Children.Add(new StackPanel { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Children = { title, line2 } });
         host.Children.Add(header);
+
+        // What this game unlocked.
+        if (Progress?.Invoke() is { } progress)
+        {
+            var unlocked = Rewards.Achievements.Where(a => progress.Unlocked.TryGetValue(a.Id, out var at) && at == g.EndedAt).ToList();
+            if (unlocked.Count > 0)
+            {
+                var text = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.FindResource("TextBrush") };
+                text.Inlines.Add(new Run("Unlocked: ") { FontWeight = FontWeights.Bold, Foreground = (Brush)Application.Current.FindResource("Accent3Brush") });
+                text.Inlines.Add(new Run(string.Join(" · ", unlocked.Select(a => $"{a.Title} ({Rewards.Unlocks(a)?.Name})"))));
+                text.Inlines.Add(new Run("  Pick it in Collection or with Style.") { Foreground = Muted, FontSize = 11 });
+                host.Children.Add(new Border
+                {
+                    Background = Theme.Tint(Theme.Pink, 0x1E), BorderBrush = Theme.PinkBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 0, 0, 12), Child = text,
+                });
+            }
+        }
 
         // Titles: something that went well, always at least one.
         var awards = Awards.For(g);

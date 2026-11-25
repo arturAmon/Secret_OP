@@ -183,7 +183,12 @@ public class FeedbackTests
         Assert.Equal(0, Kits.For(86)!.ApAbilities); // Garen
 
         var cache = LeagueOverlay.Core.Data.ChampionKits.FromCacheJson(Kits.ToCacheJson());
-        Assert.Equal(Kits.For(222), cache.For(222));
+        Assert.Equal(Kits.For(222)! with { Positions = null }, cache.For(222)! with { Positions = null });
+        Assert.Equal(["BOTTOM"], cache.For(222)!.Positions!);
+        Assert.False(cache.For(222)!.MagicDamage);
+        Assert.True(Kits.For(54)!.MagicDamage);
+        Assert.Equal(3, Kits.For(54)!.Toughness);   // Malphite
+        Assert.True(Kits.For(16)!.PlaysIn("UTILITY")); // Meraki says SUPPORT
     }
 
     [Fact]

@@ -119,7 +119,7 @@ public static class DataDragon
     /// </summary>
     private static async Task<ChampionKits> LoadKitsAsync(HttpClient http, string dir, CancellationToken ct)
     {
-        string path = Path.Combine(dir, "kits.json");
+        string path = Path.Combine(dir, "kits2.json"); // 2: positions and ratings
         try
         {
             if (File.Exists(path)) return ChampionKits.FromCacheJson(await File.ReadAllTextAsync(path, ct));

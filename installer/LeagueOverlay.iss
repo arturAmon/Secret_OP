@@ -1,7 +1,7 @@
-﻿; Installer for League Overlay (Inno Setup 6). Built by publish.ps1, which passes:
+﻿; Installer for Secret OP (Inno Setup 6), formerly League Overlay. Built by publish.ps1, which passes:
 ;   /DAppVersion=1.10.0   version shown in the installer and Apps list
 ;   /DWithBuilds          include dist\PopularBuilds.lobuilds (merged into the app's builds on first start)
-; Installs for the current user only: no admin prompt, into %LOCALAPPDATA%\Programs\League Overlay.
+; Installs for the current user only: no admin prompt, into %LOCALAPPDATA%\Programs\Secret OP.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -10,19 +10,21 @@
 [Setup]
 ; Never change AppId: it's how upgrades and the uninstaller recognise the app.
 AppId={{46CB00BB-DD69-4B83-800C-40FB8A33BD7C}
-AppName=League Overlay
+AppName=Secret OP
 AppVersion={#AppVersion}
-AppVerName=League Overlay {#AppVersion}
-AppPublisher=League Overlay
-DefaultDirName={localappdata}\Programs\League Overlay
+AppVerName=Secret OP {#AppVersion}
+AppPublisher=Secret OP
+DefaultDirName={localappdata}\Programs\Secret OP
+; Install into the new folder even when upgrading from "League Overlay" (the old folder is removed below).
+UsePreviousAppDir=no
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=LeagueOverlay-Setup-v{#AppVersion}
+OutputBaseFilename=SecretOP-Setup-v{#AppVersion}
 SetupIconFile=..\LeagueOverlay\skibidi_icon.ico
-UninstallDisplayIcon={app}\LeagueOverlay.exe
-UninstallDisplayName=League Overlay
+UninstallDisplayIcon={app}\SecretOP.exe
+UninstallDisplayName=Secret OP
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -39,22 +41,29 @@ CloseApplications=yes
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
-Source: "..\dist\LeagueOverlay.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\SecretOP.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist\README.txt"; DestDir: "{app}"; Flags: ignoreversion
 #ifdef WithBuilds
 Source: "..\dist\PopularBuilds.lobuilds"; DestDir: "{app}"; Flags: ignoreversion
 #endif
 
+[InstallDelete]
+; Left over from before the rename (League Overlay): the old install folder and its shortcuts.
+Type: filesandordirs; Name: "{localappdata}\Programs\League Overlay"
+Type: files; Name: "{autoprograms}\League Overlay.lnk"
+Type: files; Name: "{autodesktop}\League Overlay.lnk"
+
 [Icons]
-Name: "{autoprograms}\League Overlay"; Filename: "{app}\LeagueOverlay.exe"
-Name: "{autodesktop}\League Overlay"; Filename: "{app}\LeagueOverlay.exe"; Tasks: desktopicon
+Name: "{autoprograms}\Secret OP"; Filename: "{app}\SecretOP.exe"
+Name: "{autodesktop}\Secret OP"; Filename: "{app}\SecretOP.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\README.txt"; Description: "Show the quick guide"; Flags: postinstall shellexec skipifsilent unchecked
-Filename: "{app}\LeagueOverlay.exe"; Description: "Start League Overlay now"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\SecretOP.exe"; Description: "Start Secret OP now"; Flags: nowait postinstall skipifsilent
 
 [Code]
-// Settings, saved games and collected builds live in %LOCALAPPDATA%\LeagueOverlay, outside the install folder.
+// Settings, saved games and collected builds live in %LOCALAPPDATA%\LeagueOverlay (the app's name before it was
+// renamed, kept so nothing is lost), outside the install folder.
 // Keep them by default (so reinstalling keeps everything); offer to remove them on uninstall.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
@@ -64,7 +73,7 @@ begin
   begin
     DataDir := ExpandConstant('{localappdata}\LeagueOverlay');
     if DirExists(DataDir) and not UninstallSilent() then
-      if MsgBox('Also delete your League Overlay settings, saved games and collected builds?' + #13#10 +
+      if MsgBox('Also delete your Secret OP settings, saved games and collected builds?' + #13#10 +
                 'Choose No to keep them for a later reinstall.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
         DelTree(DataDir, True, True, True);
   end;

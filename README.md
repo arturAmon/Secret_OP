@@ -1,14 +1,15 @@
-# League Overlay
+# Secret OP
 
-A small Windows companion app for League of Legends: an in-game overlay plus a window with your game history.
+A small Windows companion app for League of Legends: an in-game overlay plus a window with your game history. (Formerly called League Overlay.)
 
-**[⬇ Download the latest installer](../../releases/latest)**: run `LeagueOverlay-Setup-vX.Y.Z.exe`. It installs for your Windows account only, so no admin rights are needed.
+**[⬇ Download the latest installer](../../releases/latest)**: run `SecretOP-Setup-vX.Y.Z.exe`. It installs for your Windows account only, so no admin rights are needed.
 
 ## What it shows
 
 **Champion select**
+- Champion suggestions: the best picks for your team and the enemy draft, or "Surprise me" (a champion you've barely played, tunable in Settings)
 - The most common rune page for your champion and role, applied to the client with one click
-- Starting items, and a page in the in-game shop with the build (an item set named "League Overlay")
+- Starting items, and a page in the in-game shop with the build (an item set named "Secret OP")
 
 **In game (overlay)**
 - How far your team is ahead or behind in gold spent on items
@@ -22,17 +23,19 @@ A small Windows companion app for League of Legends: an in-game overlay plus a w
 - Gold difference over the game, with every purchase and level-up for all ten players
 - You vs your lane opponent: item gold, CS per minute, KDA, level and vision
 - Rival mode: pick a friend, then compare stats in every game you play together, with a running head-to-head record
+- Opens on your History and switches to the live game when one starts; follows the account logged into the League client (each account has its own History)
 - History of your last 10 games, including games played without the app (from Riot's match history), with:
   - a match report: damage, laning at 10 and 15 minutes, objectives and highlights
   - your build next to what the overlay suggested
   - lighthearted titles for what you did well
   - your runes: what each one did, compared with what it usually does, and alternatives that would probably have done more
-- A shareable image of any game, to paste into Discord
+- A shareable image of any game, with the items you built, to paste into Discord
 
 **Surprise build mode**
 - When you lock in, you get an unexpected build your champion's abilities actually scale with (AP Ezreal, crit Garen, on-hit Teemo...), with runes and a shop page to match
 - Kept for the whole game; reroll it, or block a combination you didn't enjoy
 - History shows how each surprise game went
+- The Collection tab counts your surprise games; achievements (your first surprise game, a surprise AP or tank build, 10 games...) unlock new looks for your share image: backgrounds, frames like rivets or gold, accent colours and badges
 
 ## Optional: better item suggestions
 
@@ -69,4 +72,4 @@ The app reads the game data League provides on your own PC (`https://127.0.0.1:2
 
 ---
 
-League Overlay isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
+Secret OP isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.

@@ -9,7 +9,14 @@ namespace LeagueOverlay.Core.Data;
 /// Used by surprise mode so it only suggests styles the kit gets something out of (no AP Jinx: only her E scales with AP).
 /// </summary>
 /// <param name="AttackBased">The kit is built around basic attacks: on-hit effects, attack speed, empowered attacks, crit synergy.</param>
-public sealed record ChampionKit(int Key, int ApAbilities, int AdAbilities, int DefenseAbilities, bool HealsAllies, bool AttackBased, bool Ranged);
+/// <param name="Positions">Where it's played: TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY.</param>
+/// <param name="MagicDamage">Deals mostly magic damage (else physical).</param>
+/// <param name="Toughness">Meraki's 1-3 ratings: how tanky, how much crowd control, how hard to play.</param>
+public sealed record ChampionKit(int Key, int ApAbilities, int AdAbilities, int DefenseAbilities, bool HealsAllies, bool AttackBased, bool Ranged,
+    string[]? Positions = null, bool MagicDamage = false, int Toughness = 0, int Control = 0, int Difficulty = 0)
+{
+    public bool PlaysIn(string position) => Positions?.Contains(position, StringComparer.OrdinalIgnoreCase) == true;
+}
 
 public sealed class ChampionKits
 {
@@ -79,7 +86,13 @@ public sealed class ChampionKits
             }
             bool ranged = c.TryGetProperty("attackType", out var at) && at.GetString() == "RANGED";
             int key = idEl.GetInt32();
-            kits[key] = new ChampionKit(key, ap, ad, def, heals, attackMentions >= 3, ranged);
+            var positions = c.TryGetProperty("positions", out var ps) && ps.ValueKind == JsonValueKind.Array
+                ? ps.EnumerateArray().Select(x => x.GetString() == "SUPPORT" ? "UTILITY" : x.GetString() ?? "").Where(x => x.Length > 0).ToArray()
+                : [];
+            int Rating(string name) => c.TryGetProperty("attributeRatings", out var r) && r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+            bool magic = c.TryGetProperty("adaptiveType", out var adapt) && adapt.GetString() == "MAGIC_DAMAGE";
+            kits[key] = new ChampionKit(key, ap, ad, def, heals, attackMentions >= 3, ranged,
+                positions, magic, Rating("toughness"), Rating("control"), Rating("difficulty"));
         }
         return new ChampionKits(kits);
     }

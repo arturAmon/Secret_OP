@@ -61,8 +61,12 @@ public partial class ControlWindow : Window
             Benchmarks = () => RuneBenchmarks?.Invoke(),
             BlockSurprise = (champ, theme) => BlockSurprise?.Invoke(champ, theme),
             IsSurpriseBlocked = (champ, theme) => _settings.SurpriseBlocked.Contains(SurpriseBuilder.BlockKey(champ, theme), StringComparer.OrdinalIgnoreCase),
+            Progress = () => _rewards,
+            PickStyle = PickStyle,
         };
+        _collection = new CollectionView(_icons);
         ReplacePageBox.IsChecked = _settings.RunesReplaceCurrent;
+        PickModeBox.SelectedIndex = (int)_settings.PickMode;
         _icons.IconLoaded += Graph.InvalidateVisual;
         // No point drawing the graph while minimised; catch up when the window comes back.
         StateChanged += (_, _) => { if (WindowState != WindowState.Minimized && _pendingHistory is { } h) ShowHistory(h); };
@@ -73,7 +77,7 @@ public partial class ControlWindow : Window
         SurpriseBox.IsChecked = _settings.SurpriseMode;
         ShowSurprise(null);
         _icons.IconLoaded += () => { if (_surprisePlan is not null) ShowSurprise(_surprisePlan); };
-        _icons.IconLoaded += () => { if (_champSelect is not null) ShowChampSelect(_champSelect); };
+        _icons.IconLoaded += () => { if (_champSelect is not null || _picks is not null) ShowChampSelect(_champSelect, _picks, _inChampSelect); };
     }
 
     public void ShowHotkeyWarning(IReadOnlyList<string> failed)
@@ -119,11 +123,51 @@ public partial class ControlWindow : Window
 
     private void Tab_Checked(object sender, RoutedEventArgs e)
     {
-        if (LivePanel is null || HistoryPanel is null) return; // still loading
-        bool history = HistoryTab.IsChecked == true;
-        LivePanel.Visibility = history ? Visibility.Collapsed : Visibility.Visible;
-        HistoryPanel.Visibility = history ? Visibility.Visible : Visibility.Collapsed;
+        if (LivePanel is null || HistoryPanel is null || CollectionPanel is null) return; // still loading
+        LivePanel.Visibility = LiveTab.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        HistoryPanel.Visibility = HistoryTab.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        CollectionPanel.Visibility = CollectionTab.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        if (CollectionTab.IsChecked == true) { CollectionDot.Visibility = Visibility.Collapsed; RefreshCollection(); }
     }
+
+    // ---- surprise rewards (Collection tab) ----
+
+    private readonly CollectionView _collection;
+    private RewardProgress? _rewards;
+    /// <summary>Saves the reward progress (after a share style was picked).</summary>
+    public Action? SaveRewards { get; set; }
+
+    /// <summary>The account's surprise rewards; <paramref name="unlocked"/> = just unlocked (marks the Collection tab).</summary>
+    public void ShowRewards(RewardProgress progress, IReadOnlyList<Achievement> unlocked)
+    {
+        _rewards = progress;
+        if (unlocked.Count > 0 && CollectionTab.IsChecked != true) CollectionDot.Visibility = Visibility.Visible;
+        if (CollectionTab.IsChecked == true) RefreshCollection();
+    }
+
+    private void RefreshCollection()
+    {
+        if (_rewards is null) { CollectionHost.Children.Clear(); return; }
+        var sample = GameList.Items.OfType<ListBoxItem>().Select(i => i.Tag).OfType<GameRecord>().FirstOrDefault();
+        _collection.Show(CollectionHost, _rewards, sample, PickStyle);
+    }
+
+    private void PickStyle(CardStyle style)
+    {
+        if (_rewards is null) return;
+        _rewards.Style = style;
+        SaveRewards?.Invoke();
+        if (CollectionTab.IsChecked == true) RefreshCollection();
+    }
+
+    /// <summary>The account changed (League client): refresh what shows it.</summary>
+    public void RefreshAccount() => RefreshStatus();
+
+    /// <summary>A game started: show it.</summary>
+    public void ShowLiveTab() => LiveTab.IsChecked = true;
+
+    /// <summary>A game ended: back to History.</summary>
+    public void ShowHistoryTab() => HistoryTab.IsChecked = true;
 
     public void ShowBuildStatus(CrawlStatus s)
     {
@@ -239,13 +283,83 @@ public partial class ControlWindow : Window
         }
     }
 
-    /// <summary>The champion select card: suggested runes for your champion and the Apply button. Null hides it.</summary>
-    public void ShowChampSelect(ChampSelectView? view)
+    /// <summary>Champion suggestions mode changed / another surprise pick asked for / hover a champion (returns what happened).</summary>
+    public event Action<PickModeSetting>? PickModeChanged;
+    public event Action? PickRerollRequested;
+    public Func<int, Task<string>>? HoverRequested { get; set; }
+    private PickAdvice? _picks;
+    private bool _inChampSelect;
+
+    private void PickMode_Changed(object sender, SelectionChangedEventArgs e)
     {
+        if (!IsLoaded || PickModeBox.SelectedItem is not ComboBoxItem { Tag: string tag } || !Enum.TryParse<PickModeSetting>(tag, out var mode)) return;
+        PickModeChanged?.Invoke(mode);
+        PicksNote.Text = mode == PickModeSetting.Off ? "Off." : "Updating…";
+        PicksList.Children.Clear();
+    }
+
+    private void PickReroll_Click(object sender, RoutedEventArgs e) => PickRerollRequested?.Invoke();
+
+    /// <summary>Suggested champions: icon, name, why, and a Hover button that shows it to your team in the client.</summary>
+    private void ShowPicks(PickAdvice? picks)
+    {
+        _picks = picks;
+        PicksList.Children.Clear();
+        bool any = picks is { Picks.Count: > 0 };
+        PicksSection.Visibility = picks is null || picks.Mode == PickMode.Off ? Visibility.Collapsed : Visibility.Visible;
+        PickRerollButton.Visibility = picks is { Mode: PickMode.Surprise } ? Visibility.Visible : Visibility.Collapsed;
+        if (picks is null) return;
+        PicksNote.Text = any ? picks.Note : picks.Mode == PickMode.Surprise ? "No champion fits right now." : "No suggestions yet.";
+        foreach (var pick in picks.Picks)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 4, 0, 4) };
+            var icon = new Border
+            {
+                Width = 34, Height = 34, CornerRadius = new CornerRadius(4), ClipToBounds = true, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Top,
+                Background = (Brush)FindResource("Panel2"), Child = new System.Windows.Controls.Image { Source = _icons.Champion(pick.ChampionId) },
+            };
+            DockPanel.SetDock(icon, Dock.Left);
+            row.Children.Add(icon);
+            if (picks.CanHover && HoverRequested is not null)
+            {
+                var hover = new Button { Content = "Hover", Padding = new Thickness(8, 2, 8, 2), FontSize = 11, VerticalAlignment = VerticalAlignment.Top,
+                                         ToolTip = $"Show {pick.Name} to your team in the client (doesn't lock it in)" };
+                int key = pick.Key;
+                hover.Click += async (_, _) => HoverStatus.Text = await HoverRequested(key);
+                DockPanel.SetDock(hover, Dock.Right);
+                row.Children.Add(hover);
+            }
+            var text = new StackPanel();
+            text.Children.Add(new TextBlock { Text = pick.Name, FontWeight = FontWeights.SemiBold });
+            foreach (var reason in pick.Reasons)
+                text.Children.Add(new TextBlock { Text = reason, FontSize = 11, Foreground = (Brush)FindResource(reason.StartsWith("Careful") ? "ErrBrush" : "MutedBrush"), TextWrapping = TextWrapping.Wrap });
+            row.Children.Add(text);
+            PicksList.Children.Add(row);
+        }
+    }
+
+    /// <summary>
+    /// The champion select card: champion suggestions until you lock in, then the suggested runes for your champion and
+    /// the Apply button. Hidden outside champion select.
+    /// </summary>
+    public void ShowChampSelect(ChampSelectView? view, PickAdvice? picks = null, bool inChampSelect = false)
+    {
+        _inChampSelect = inChampSelect;
         bool changed = view?.ChampionId != _champSelect?.ChampionId || view?.Locked != _champSelect?.Locked || !Equals(view?.Runes, _champSelect?.Runes);
         _champSelect = view;
-        ChampSelectCard.Visibility = view is null ? Visibility.Collapsed : Visibility.Visible;
-        if (view is null) { ApplyRunesStatus.Text = ItemSetStatus.Text = ""; return; }
+        ChampSelectCard.Visibility = view is null && !inChampSelect ? Visibility.Collapsed : Visibility.Visible;
+        ShowPicks(view is { Locked: true } ? null : picks);
+        PicksDivider.Visibility = view is not null && picks is not null && view is not { Locked: true } && picks.Mode != PickMode.Off ? Visibility.Visible : Visibility.Collapsed;
+        ChampSelectText.Visibility = ChampSelectRunes.Visibility = ApplyRunesStatus.Visibility = ItemSetStatus.Visibility =
+            view is null ? Visibility.Collapsed : Visibility.Visible;
+        if (view is null)
+        {
+            ApplyRunesStatus.Text = ItemSetStatus.Text = "";
+            ApplyRunesButton.Visibility = ReplacePageBox.Visibility = ChampSelectStarterLabel.Visibility = Visibility.Collapsed;
+            ChampSelectStarter.Children.Clear();
+            if (!inChampSelect) HoverStatus.Text = "";
+            return;
+        }
         if (changed) ApplyRunesStatus.Text = "";
         ChampSelectStarter.Children.Clear();
         ChampSelectStarterLabel.Visibility = view.Starter.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -345,7 +459,7 @@ public partial class ControlWindow : Window
     {
         try
         {
-            var image = ShareCard.Render(g, duel, _icons);
+            var image = ShareCard.Render(g, duel, _icons, _rewards is null ? null : Rewards.Effective(_rewards));
             if (!saveToFile)
             {
                 Clipboard.SetImage(image);
@@ -410,7 +524,8 @@ public partial class ControlWindow : Window
         ShowHotkeyWarning(_overlay.ApplyHotkeys());
         if (saved && dialog.BuildSettingsChanged) BuildSettingsChanged?.Invoke();
         if (saved && dialog.RivalChanged) OnRivalChanged();
-        if (saved && dialog.MyRiotIdChanged) ImportRequested?.Invoke();
+        if (saved) ReplacePageBox.IsChecked = _settings.RunesReplaceCurrent;
+        if (saved && dialog.SurprisePicksChanged) PickRerollRequested?.Invoke();
         RefreshHotkeys();
         RefreshStatus();
     }

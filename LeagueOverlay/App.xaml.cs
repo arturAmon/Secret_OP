@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Windows;
 using LeagueOverlay.Core.Analysis;
@@ -26,6 +26,10 @@ public partial class App : Application
     // Records the current game for the History tab; the last game's timeline stays on "This game" until the next one.
     private readonly GameRecorder _recorder = new();
     private readonly GameRecordStore _games = new(GameRecordStore.DefaultRoot);
+    // Surprise games counted and what they unlocked, for the account logged into the League client.
+    private readonly RewardStore _rewardStore = new(RewardStore.DefaultRoot);
+    private RewardProgress _rewards = new();
+    private DateTime _accountCheckedAt = DateTime.MinValue;
     private readonly StackTracker _stacks = new();
     // Surprise build: one plan per game (and champion) until rerolled.
     private readonly SurpriseSession _surprise = new();
@@ -33,6 +37,14 @@ public partial class App : Application
     private string? _itemSetKey;
     // The League client (lobby / champion select), for rune suggestions before the game.
     private readonly LcuClient _lcu = new();
+    // Champion suggestions: the champion select being shown, the champions you can play and your mastery (fetched once
+    // per champion select), and the "surprise me" pick, kept until a reroll or the end of champion select.
+    private ChampSelectState? _champSelectState;
+    private IReadOnlySet<int>? _pickable;
+    private IReadOnlyDictionary<int, ChampMastery>? _mastery;
+    private DateTime _pickDataAt = DateTime.MinValue;
+    private int _pickSeed = Random.Shared.Next();
+    private int? _pickSurprise;
     // The surprise plan the current game is being played with (null when surprise mode is off), saved with the game.
     private SurprisePlan? _gameSurprise;
 
@@ -40,7 +52,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        // Headless: "LeagueOverlay.exe --export-builds <file>" writes the collected builds to a file and exits
+        // Headless: "SecretOP.exe --export-builds <file>" writes the collected builds to a file and exits
         // (publish.ps1 uses it to put your builds into the installer). Works while the app is also running.
         if (e.Args is ["--export-builds", var exportPath])
         {
@@ -55,7 +67,7 @@ public partial class App : Application
         if (!isFirst)
         {
             // Already running: bring its window to the front instead of starting a second copy.
-            var existing = Native.FindWindow(null, "League Overlay");
+            var existing = Native.FindWindow(null, "Secret OP");
             if (existing != 0) { Native.ShowWindow(existing, Native.SW_RESTORE); Native.SetForegroundWindow(existing); }
             Shutdown();
             return;
@@ -74,13 +86,20 @@ public partial class App : Application
         _control.SurpriseToggled += on => { _settings.SurpriseMode = on; _settings.Save(); };
         _control.RerollRequested += () => { _surprise.Reroll(); _itemSetKey = null; }; // a new plan (and item set) on the next read
         _control.BlockSurprise = BlockSurprise;
+        _control.PickModeChanged += mode => { _settings.ChampionPickMode = mode.ToString(); _settings.Save(); };
+        _control.PickRerollRequested += () => { _pickSeed = Random.Shared.Next(); _pickSurprise = null; };
+        _control.HoverRequested = async champion =>
+            _champSelectState?.PickActionId is { } action ? await _lcu.HoverAsync(action, champion, _cts.Token) : "It's not your turn to pick yet.";
         _control.UnblockAllSurprises = () => { _settings.SurpriseBlocked.Clear(); _settings.Save(); _control?.RefreshSurpriseBlocks(refreshHistory: true); };
         _control.ApplyRunes = (page, replace) => _lcu.ApplyPageAsync(page, replace, _cts.Token);
         _control.RuneBenchmarks = () => _library?.Benchmarks;
         _control.ExportBuilds = ExportBuilds;
         _control.ImportBuilds = ImportBuildsAsync;
         _control.ShowHotkeyWarning(_window.ApplyHotkeys());
+        _control.SaveRewards = () => SaveRewards();
+        _games.Account = _settings.MyRiotId;
         var saved = _games.LoadRecent();
+        LoadRewards(saved);
         _control.ShowGames(saved, openNewest: false);
         // Saved games without match-history numbers (played before a key was set) or saved before the app knew all of them.
         foreach (var g in saved.Where(g => g.PostGame is not { Format: >= PostGameStats.CurrentFormat })) FetchMatchHistory(g);
@@ -146,12 +165,12 @@ public partial class App : Application
                 // Learn who "you" are from the game client, for fetching your recent games later.
                 // Only from the real game client: a test client (LEAGUE_LIVE_URL) must not overwrite who you are.
                 if (live.Uri == LiveClient.DefaultUri && game?.ActivePlayer?.RiotId is { Length: > 0 } myId && !RiotIds.Same(myId, _settings.MyRiotId))
-                {
-                    _settings.MyRiotId = myId;
-                    _settings.Save();
-                }
+                    SwitchAccount(myId);
                 var current = data;
+                bool started = game is not null && !_inGame, ended = game is null && _inGame;
                 _inGame = game is not null;
+                if (started) _control?.ShowLiveTab();
+                else if (ended) _control?.ShowHistoryTab(); // a saved game also opens it there
                 var library = _library;
                 Func<int, string?, ChampionBuild?>? popular = library is null ? null : library.For;
                 string? rivalId = _settings.Rival;
@@ -229,30 +248,88 @@ public partial class App : Application
     private async Task RunChampSelectAsync(CancellationToken ct)
     {
         ChampSelectView? last = null;
+        PickAdvice? lastPicks = null;
         bool shown = false;
         while (!ct.IsCancellationRequested)
         {
             ChampSelectView? view = null;
+            PickAdvice? picks = null;
             try
             {
-                if (!_inGame && _data.IsLoaded && await _lcu.TryChampSelectAsync(ct) is { ChampionId: > 0 } state &&
-                    _data.ChampionByKey(state.ChampionId) is { } champ)
-                    view = ChampSelectViewFor(state, champ);
+                // Follow the account logged into the League client.
+                if (DateTime.UtcNow - _accountCheckedAt > TimeSpan.FromSeconds(30))
+                {
+                    _accountCheckedAt = DateTime.UtcNow;
+                    if (await _lcu.CurrentAccountAsync(ct) is { } account && !RiotIds.Same(account, _settings.MyRiotId)) SwitchAccount(account);
+                }
+                var state = !_inGame && _data.IsLoaded ? await _lcu.TryChampSelectAsync(ct) : null;
+                _champSelectState = state;
+                if (state is not null)
+                {
+                    if (state.ChampionId > 0 && _data.ChampionByKey(state.ChampionId) is { } champ) view = ChampSelectViewFor(state, champ);
+                    picks = state.Locked ? null : await PickAdviceForAsync(state, ct);
+                }
+                else ResetPickSession();
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex) { Debug.WriteLine($"Champion select read failed: {ex.Message}"); }
 
-            if (!shown || !Equals(view, last))
+            if (!shown || !Equals(view, last) || !Equals(picks, lastPicks))
             {
-                _window?.RenderChampSelect(view);
-                _control?.ShowChampSelect(view);
+                _window?.RenderChampSelect(view, picks);
+                _control?.ShowChampSelect(view, picks, inChampSelect: _champSelectState is not null);
                 last = view;
+                lastPicks = picks;
                 shown = true;
             }
             if (view is { Locked: true }) await SendItemSetAsync(view, ct);
-            try { await Task.Delay(TimeSpan.FromSeconds(view is not null || _lcu.IsConnected ? 2 : 5), ct); }
+            try { await Task.Delay(TimeSpan.FromSeconds(_champSelectState is not null || _lcu.IsConnected ? 2 : 5), ct); }
             catch (OperationCanceledException) { break; }
         }
+    }
+
+    private static string SurprisePickNote(SurprisePickOptions o) =>
+        (o.AnyMastery ? (o.Even ? "Any champion, all equally likely" : "Any champion, least played more likely")
+                      : (o.Even ? "A champion you've barely played, all equally likely" : "A champion you've barely played"))
+        + (o.OnlyMyRole ? ", played in your role." : ", any role (off-meta picks included).");
+
+    private void ResetPickSession()
+    {
+        _pickable = null;
+        _mastery = null;
+        _pickDataAt = DateTime.MinValue;
+        if (_pickSurprise is not null) { _pickSurprise = null; _pickSeed = Random.Shared.Next(); }
+    }
+
+    /// <summary>Champion suggestions for this moment of champion select, in the chosen mode (null when off).</summary>
+    private async Task<PickAdvice?> PickAdviceForAsync(ChampSelectState state, CancellationToken ct)
+    {
+        var mode = _settings.PickMode;
+        if (mode == PickModeSetting.Off) return new PickAdvice(PickMode.Off, ValueList<PickSuggestion>.Empty, null, "", false);
+        // What you own and your mastery don't change during champion select: fetch them once (and again after a minute).
+        if (DateTime.UtcNow - _pickDataAt > TimeSpan.FromMinutes(1))
+        {
+            _pickable = await _lcu.PickableAsync(ct) ?? _pickable;
+            _mastery = await _lcu.MasteryAsync(ct) ?? _mastery;
+            _pickDataAt = DateTime.UtcNow;
+        }
+        string? position = LcuClient.NormalizePosition(state.Position);
+        var unavailable = state.Bans.Concat(state.Allies.Select(a => a.Champion)).Concat(state.Enemies.Select(e => e.Champion))
+            .Where(c => c > 0).ToHashSet();
+        var ctx = new PickContext(position, state.Allies, state.Enemies, unavailable, _pickable, _mastery);
+        var stats = _library?.Matchups;
+        string role = ChampionRecommender.RoleLabel(position);
+        string games = stats is { IsEmpty: false } ? $"{stats.Matches:N0} high-ranked games" : "champion data (collect games with an API key for win rates)";
+        if (mode == PickModeSetting.Surprise)
+        {
+            var pick = ChampionRecommender.Surprise(ctx, _data, stats, _pickSeed, _pickSurprise, _settings.SurprisePicks);
+            _pickSurprise = pick?.Key;
+            return new PickAdvice(PickMode.Surprise, new ValueList<PickSuggestion>(pick is null ? [] : [pick]), role,
+                _mastery is null ? "Couldn't read your mastery, so this is just random." : SurprisePickNote(_settings.SurprisePicks), state.PickActionId is not null);
+        }
+        var best = ChampionRecommender.Best(ctx, _data, stats);
+        return new PickAdvice(PickMode.Best, new ValueList<PickSuggestion>(best), role,
+            $"Best {role} picks for this draft, from {games}" + (_pickable is null ? "." : ", among champions you can play."), state.PickActionId is not null);
     }
 
     /// <summary>
@@ -328,6 +405,50 @@ public partial class App : Application
         lock (_recorder) return _recorder.IsRecording ? _recorder.Finish() : null;
     }
 
+    /// <summary>
+    /// Another account is logged into the League client (or played a game): remember it, and show its own History,
+    /// surprise games and unlocks. Its recent games are fetched from Riot when there's a key.
+    /// </summary>
+    private void SwitchAccount(string account)
+    {
+        _settings.MyRiotId = account;
+        _settings.Save();
+        _games.Account = account;
+        var games = _games.LoadRecent();
+        LoadRewards(games);
+        _control?.ShowGames(games, openNewest: false);
+        _control?.RefreshAccount();
+        ImportRecentGames(userAsked: false);
+    }
+
+    /// <summary>This account's rewards; games saved before rewards existed are counted the first time.</summary>
+    private void LoadRewards(IReadOnlyList<GameRecord> games)
+    {
+        _rewards = _rewardStore.Load(_settings.MyRiotId);
+        if (!_rewards.Backfilled)
+        {
+            Rewards.Backfill(_rewards, games);
+            SaveRewards();
+        }
+        _control?.ShowRewards(_rewards, []);
+    }
+
+    private void SaveRewards()
+    {
+        try { _rewardStore.Save(_settings.MyRiotId, _rewards); }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException) { Debug.WriteLine($"Saving rewards failed: {e.Message}"); }
+    }
+
+    /// <summary>Counts a saved game toward the surprise rewards and tells the window about anything it unlocked.</summary>
+    private void CountRewards(GameRecord record)
+    {
+        if (!GameRecordStore.Belongs(record, _settings.MyRiotId)) return;
+        var unlocked = Rewards.Record(_rewards, record);
+        if (unlocked.Count == 0 && !Rewards.Counts(record)) return;
+        SaveRewards();
+        _control?.ShowRewards(_rewards, unlocked);
+    }
+
     private void SaveGame(GameRecord record, bool show)
     {
         // Keep which surprise build this game was played with.
@@ -336,6 +457,7 @@ public partial class App : Application
         _gameSurprise = null;
         try { _games.Save(record); }
         catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException) { Debug.WriteLine($"Saving game failed: {e.Message}"); return; }
+        CountRewards(record);
         if (show) _control?.ShowGames(_games.LoadRecent(), openNewest: true);
         _control?.RecordRivalry(record);
         FetchMatchHistory(record);
@@ -357,7 +479,7 @@ public partial class App : Application
         }
         if (_settings.MyRiotId is not { } me)
         {
-            if (userAsked) _control.ShowImportStatus("Enter your Riot ID in Settings (or play a game with the app running) so the app knows whose games to fetch.", busy: false);
+            if (userAsked) _control.ShowImportStatus("Open the League client so the app knows which account is yours.", busy: false);
             return;
         }
         if (!_data.IsLoaded) { if (userAsked) _control.ShowImportStatus("Still loading item data; try again in a moment.", busy: false); return; }
@@ -387,7 +509,7 @@ public partial class App : Application
             catch (Exception e) when (e is HttpRequestException or System.IO.IOException or System.Text.Json.JsonException or KeyNotFoundException or TaskCanceledException)
             {
                 status = e is HttpRequestException { StatusCode: System.Net.HttpStatusCode.NotFound }
-                    ? $"Riot doesn't know the Riot ID {me}. Check it in Settings."
+                    ? $"Riot doesn't know the Riot ID {me}. Log into the League client so the app picks up your account."
                     : "Couldn't reach Riot right now. Try again in a bit.";
             }
             await Dispatcher.InvokeAsync(() => { _importing = false; _control?.ShowImportStatus(status, busy: false); });
@@ -420,6 +542,7 @@ public partial class App : Application
                     {
                         _control?.ShowGames(_games.LoadRecent(), openNewest: false);
                         _control?.RecordRivalry(enriched);
+                        CountRewards(enriched); // the definite result: a surprise win may count now
                     });
                     return;
                 }
